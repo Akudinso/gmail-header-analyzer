@@ -4,7 +4,7 @@ A Chrome extension that analyses the email you open in Gmail, automatically. Ope
 
 Built as a learning project inspired by the email header analysis module of TCM Security's SOC 101 course.
 
-> **Status: early development.** Header analysis and reputation lookups work today. A risk score and an AI summary are next (see [Roadmap](#roadmap)).
+> **Status: early development.** Header analysis, reputation lookups and an explainable risk score work today. An AI summary is next (see [Roadmap](#roadmap)).
 
 ## What it does today
 
@@ -12,7 +12,7 @@ When you open an email in Gmail, the extension fetches the complete original mes
 
 | Section | What you see |
 |---|---|
-| **Findings** | Plain-English red flags: DMARC/SPF failures, missing DKIM, Reply-To or bounce address on another domain, misleading links, risky attachments |
+| **Risk** | A 0–100 score (Low, Suspicious, High) with every finding listed in plain English, strongest first, showing exactly how many points it added. See [How the risk score works](#how-the-risk-score-works). |
 | **Authentication** | SPF, DKIM and DMARC results, taken only from the `Authentication-Results` header Google itself added |
 | **Sender IP** | The IP that actually connected to Google (verified), kept separate from IPs the sender *claims* (earliest hop, `X-Originating-IP`, `X-Sender-IP`) |
 | **Received path** | Every hop, oldest first, with delays between hops |
@@ -20,6 +20,27 @@ When you open an email in Gmail, the extension fetches the complete original mes
 | **Attachments** | File name, type, size, risky-extension flags and SHA-256 hash (for VirusTotal lookups) |
 | **Raw headers** | All headers, unfolded and decoded |
 | **Reputation lookups** *(optional, [needs the Worker](#6-turn-on-lookups-optional))* | Sender IP: AbuseIPDB score and reports, owner, ASN, network, reverse DNS, VirusTotal detections. Every domain involved: whether it **exists at all** (catches made-up TLDs like `.ikz`), **registration date and age**, registrar, VirusTotal detections. Reverse DNS is checked in both directions, so a PTR name the IP's owner simply made up is labelled unconfirmed. Suspicious links and attachment hashes checked against VirusTotal. |
+
+### How the risk score works
+
+Every point traces back to a finding you can read, and the same email always gets the same score. The rules are in [`extension/lib/findings.js`](extension/lib/findings.js).
+
+1. **Each finding has a fixed number of points**, set by how often it shows up in *legitimate* mail:
+
+   | Finding | Points | Why |
+   |---|---|---|
+   | Forged Google hop | 30 | Never happens in real mail |
+   | DMARC fail | 30 | The From domain didn't authorise the email |
+   | Link text points to a different domain | 25 | Classic phishing trick |
+   | Domain registered under 30 days ago (From/Reply-To) | 25 | Phishing domains are usually brand new |
+   | Server's own name doesn't match Google's lookup | 20 | Impersonation, e.g. "docs.google.com" from a rented server |
+   | Reply-To on another domain | 15 | Replies are diverted |
+   | Bounce address on another domain | 5 | Normal for every newsletter service, so it counts for little |
+
+2. **Related findings share a cap.** Findings fall into five groups (authentication, sender identity, sending infrastructure, links, attachments), each with a maximum. A DMARC failure usually brings SPF and DKIM problems with it; the cap stops one root cause being counted three times. A finding over the cap shows "+10 of 20".
+3. **Passes never lower the score.** SPF, DKIM and DMARC passing proves a domain sent the email, not that the domain is honest. Attackers pass all three on domains they registered last week.
+4. **Decisive findings set a minimum of 60.** A From domain that can't exist, a forged Google hop, or a file or link that several antivirus engines call malicious essentially never appear in legitimate mail. Any one of them makes the email High risk on its own.
+5. **Levels:** 0–24 Low, 25–59 Suspicious, 60–100 High. If lookups are off or still running, the panel says the score may be incomplete.
 
 ### Why some IPs are "verified" and others aren't
 
@@ -268,7 +289,7 @@ extension/
   manifest.template.json   committed template; `npm run setup` fills in your key and client ID
   content.js               detects the open email in Gmail
   background.js            sign-in, Gmail API fetch, caching, calls the Worker
-  lib/                     parser and lookup-request builder (pure JS, runs in the browser and in Node tests)
+  lib/                     parser, lookup-request builder, findings and risk score (pure JS, runs in the browser and in Node tests)
   sidepanel/               report UI
 worker/
   src/index.js             auth, input validation, VirusTotal budget
@@ -298,7 +319,7 @@ test/                      node:test suites and sample .eml fixtures
 - [x] Step 1 — Sign in, fetch the raw email via Gmail API, parse it
 - [x] Step 2 — Extract indicators and show them in the side panel
 - [x] Step 3 — Worker lookups: AbuseIPDB, VirusTotal, RDAP (owner, **domain age**), reverse DNS, with caching
-- [ ] Step 4 — Explainable rule-based risk score (every point traceable to a finding)
+- [x] Step 4 — Explainable rule-based risk score (every point traceable to a finding)
 - [ ] Step 5 — AI summary that explains the evidence but can never lower the score (email text is attacker-controlled, so prompt injection is assumed)
 
 ## Known limitations

@@ -1,3 +1,5 @@
+import { assessReport } from "../lib/findings.js";
+
 // Side panel UI. SECURITY: every value shown here comes from an email the
 // attacker wrote. Never use innerHTML with report data — the el() helper
 // only ever sets textContent. Links are shown as text, never clickable.
@@ -113,57 +115,49 @@ function fmtDelay(s) {
   return `+${(s / 3600).toFixed(1)}h`;
 }
 
-function findings(r) {
-  const out = [];
-  const a = r.auth;
-  if (!a.trustedSource) out.push("No Authentication-Results from Google found — results can't be verified.");
-  if (r.checks.forgedGoogleHops) out.push(`${r.checks.forgedGoogleHops} Received header(s) claim Google handled this email earlier, but Google didn't write them. The sender forged them to make the path look trustworthy.`);
-  if (r.checks.heloMismatch) {
-    const m = r.senderIp.heloMismatch;
-    out.push(`The sending server introduced itself as ${m.helo}, but Google recorded its address as ${m.reverseDns} [${m.ip}].`);
-  }
-  if (r.checks.noDmarc) out.push(`No DMARC result for ${r.summary.from?.domain ?? "the From domain"}, so nothing stops others sending as it.`);
-  if (a.dmarc?.result === "fail") out.push(`DMARC failed for ${a.dmarc.domain ?? "the From domain"}${a.dmarc.policy ? ` (policy: ${a.dmarc.policy})` : ""}.`);
-  if (a.spf && a.spf.result !== "pass") out.push(`SPF ${a.spf.result} for ${a.spf.domain ?? "the envelope sender"}.`);
-  if (!a.dkim) out.push("Message has no DKIM signature.");
-  else if (a.dkim.result !== "pass") out.push(`DKIM ${a.dkim.result}.`);
-  if (r.checks.replyToDiffers) out.push(`Replies go to ${r.summary.replyTo.domain}, not ${r.summary.from.domain}.`);
-  if (r.checks.returnPathDiffers) out.push(`Bounces go to ${r.summary.returnPath.domain}, not ${r.summary.from.domain}.`);
-  if (r.checks.dkimNotAligned) out.push(`DKIM signed by ${a.dkim.domain}, which isn't the From domain.`);
-  if (r.checks.displayNameHasEmail) out.push("The display name contains a different email address.");
-  if (r.checks.linkTextMismatches) out.push(`${r.checks.linkTextMismatches} link(s) show one domain but go to another.`);
-  if (r.checks.sharedHostingLinks) out.push(`${r.checks.sharedHostingLinks} link(s) go to shared hosting where anyone can publish a page, so the parent domain's reputation doesn't vouch for it.`);
-  if (r.checks.ipLinks) out.push(`${r.checks.ipLinks} link(s) point straight at an IP address.`);
-  if (r.checks.riskyAttachments) out.push(`${r.checks.riskyAttachments} attachment(s) have a risky file type.`);
-  out.push(...lookupFindings(r.enrichment?.results));
-  return out;
+// ---------- risk score ----------
+
+const PROVISIONAL_TEXT = {
+  off: "Lookups aren't set up, so this score uses the headers, links and attachments only.",
+  loading: "Lookups are still running; the score may go up.",
+  error: "Lookups failed, so this score uses the headers, links and attachments only.",
+  unreachable: "The Worker isn't running, so this score uses the headers, links and attachments only.",
+};
+
+function renderAssessment(assessment, enrichment) {
+  const { score, level, label, findings, groups, provisional } = assessment;
+  const header = el("div", { class: `score score-${level}` },
+    el("div", { class: "score-num" }, el("span", { class: "big", text: score }), el("span", { class: "of", text: "/100" })),
+    el("div", {},
+      el("div", { class: "score-label", text: label }),
+      el("div", { class: "muted", text: findings.length ? `${findings.length} finding${findings.length === 1 ? "" : "s"}, strongest first` : "No red flags in headers, links or attachments." })
+    )
+  );
+  const meter = el("div", { class: "meter", role: "img", "aria-label": `Risk score ${score} out of 100` }, el("div", { class: "meter-fill", style: `width:${score}%` }));
+  const breakdown = groups.length
+    ? el("div", { class: "chips", style: "margin-top:10px" }, groups.map((g) => el("span", { class: "chip", title: `Capped at ${g.cap}` }, `${g.label} ${g.points}`)))
+    : null;
+  const floorNote = assessment.floor
+    ? el("p", { class: "muted", style: "margin:8px 0 0", text: `The findings add up to ${assessment.floor.sum}, but one of them is decisive on its own, so the score is at least ${assessment.floor.minimum}.` })
+    : null;
+  const note = provisional ? el("p", { class: "muted", style: "margin:8px 0 0", text: PROVISIONAL_TEXT[enrichment?.status] ?? PROVISIONAL_TEXT.off }) : null;
+  const list = findings.length
+    ? el("ul", { class: "flags", style: "margin-top:12px" },
+        findings.map((f) =>
+          el("li", { class: f.awarded >= 25 || f.decisive ? "hi" : "" },
+            el("span", { class: "pts", title: f.awarded < f.points ? `${f.points} points, but the ${f.group} group is capped` : `${f.points} points` }, f.awarded < f.points ? `+${f.awarded} of ${f.points}` : `+${f.awarded}`),
+            el("span", {}, f.text, f.decisive ? el("strong", { text: " Decisive on its own." }) : null)
+          )
+        )
+      )
+    : null;
+  return card("Risk", header, meter, breakdown, floorNote, note, list);
 }
 
 // ---------- lookups ----------
 
 const NEW_DOMAIN_DAYS = 30;
 const ok = (res) => res?.status === "ok" && res.data;
-const vtBad = (res) => (ok(res) ? res.data.malicious + res.data.suspicious : 0);
-
-function lookupFindings(x) {
-  if (!x) return [];
-  const out = [];
-  const abuse = ok(x.ip?.abuseipdb) ? x.ip.abuseipdb.data : null;
-  if (abuse && abuse.abuseScore >= 25) out.push(`Sender IP has an AbuseIPDB score of ${abuse.abuseScore}% (${abuse.totalReports} reports).`);
-  if (abuse?.isTor) out.push("Sender IP is a Tor exit node.");
-  if (vtBad(x.ip?.virustotal)) out.push(`${vtBad(x.ip.virustotal)} VirusTotal engine(s) flag the sender IP.`);
-  for (const d of x.domains ?? []) {
-    const dns = ok(d.dns) ? d.dns.data : null;
-    if (dns && !dns.tldExists) out.push(`${d.domain} (${d.roles.join(", ")}) uses ".${d.domain.split(".").pop()}", which isn't a real top-level domain, so this address is fake.`);
-    else if (dns && !dns.domainExists) out.push(`${d.domain} (${d.roles.join(", ")}) doesn't exist in DNS.`);
-    const age = ok(d.rdap) ? d.rdap.data.ageDays : null;
-    if (age != null && age < NEW_DOMAIN_DAYS) out.push(`${d.domain} (${d.roles.join(", ")}) was registered only ${age} day(s) ago.`);
-    if (vtBad(d.virustotal)) out.push(`${vtBad(d.virustotal)} VirusTotal engine(s) flag ${d.domain}.`);
-  }
-  for (const u of x.urls ?? []) if (vtBad(u.virustotal)) out.push(`VirusTotal flags a link: ${u.url}`);
-  for (const h of x.hashes ?? []) if (vtBad(h.virustotal)) out.push(`VirusTotal flags an attachment${h.virustotal.data.threatLabel ? ` as ${h.virustotal.data.threatLabel}` : ""}.`);
-  return out;
-}
 
 const STATUS_TEXT = {
   not_found: "Not in VirusTotal's database",
@@ -347,13 +341,7 @@ function renderReport(r, state) {
     )
   );
 
-  const f = findings(r);
-  app.append(
-    card(
-      "Findings",
-      el("ul", { class: "flags" }, f.length ? f.map((t) => el("li", { text: t })) : el("li", { class: "ok", text: "No red flags in headers, links or attachments." }))
-    )
-  );
+  app.append(renderAssessment(assessReport(r), r.enrichment));
 
   app.append(renderLookups(r.enrichment));
 
@@ -475,7 +463,8 @@ chrome.tabs.onActivated.addListener(load);
 
 refreshBtn.addEventListener("click", () => send("panel:refresh"));
 copyBtn.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(JSON.stringify(currentState?.report ?? {}, null, 2));
+  const report = currentState?.report;
+  await navigator.clipboard.writeText(JSON.stringify(report ? { ...report, assessment: assessReport(report) } : {}, null, 2));
   copyBtn.textContent = "Copied";
   setTimeout(() => (copyBtn.textContent = "Copy JSON"), 1200);
 });
