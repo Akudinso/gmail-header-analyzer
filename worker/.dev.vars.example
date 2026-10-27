@@ -1,5 +1,7 @@
-# Copy to worker/.dev.vars (gitignored) and fill in. Used by `npm run worker:dev`.
+# `npm run setup` creates worker/.dev.vars (gitignored) from this file and fills
+# in ALLOWED_ORIGINS and WORKER_KEY for you. You only need to add the API keys.
 ALLOWED_ORIGINS=chrome-extension://YOUR_EXTENSION_ID
+WORKER_KEY=
 
 # Free keys: https://www.virustotal.com/gui/join-us  and  https://www.abuseipdb.com/register
 VT_API_KEY=
