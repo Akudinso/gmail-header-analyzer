@@ -71,21 +71,82 @@ Keep `.local/extension-key.pem`. If you delete it, you get a new ID and must upd
 
 ### 3. Set up Google sign-in
 
-Every person who runs the extension uses their **own** Google Cloud project, so nobody shares credentials.
+Google only lets an extension read Gmail if it has an OAuth client, which lives inside a Google Cloud project. Every person who runs this extension creates their **own**, so nobody shares credentials.
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a project (any name).
-2. **Enable the Gmail API:** APIs & Services → Library → search "Gmail API" → Enable.
-3. **Configure sign-in:** open **Google Auth Platform** (formerly "OAuth consent screen") → Get started. Enter an app name and your email, choose **External** as the audience.
-4. **Add yourself as a test user:** Google Auth Platform → **Audience** → Test users → add your Gmail address. Leave the app in **Testing**; it doesn't need to be published.
-5. **Add the scope:** Google Auth Platform → **Data access** → Add or remove scopes → add `https://www.googleapis.com/auth/gmail.readonly`.
-6. **Create the client:** Google Auth Platform → **Clients** → Create client → Application type **Chrome Extension** → paste your extension ID from step 2 into **Item ID** → Create.
-7. Copy the client ID (ends in `.apps.googleusercontent.com`) and run:
+This is free. You don't need billing, a credit card or the "$300 free trial" banner; ignore or dismiss it.
+
+> **Use a new, dedicated project** even if you already have others. A project has one sign-in screen and one list of permissions. Adding Gmail access to a project you use for something else mixes the two apps' settings and permissions together.
+
+#### 3a. Create the project
+
+1. Open [console.cloud.google.com](https://console.cloud.google.com/) and sign in with the Gmail account you want to analyse.
+2. At the top left, next to the **Google Cloud** logo, click the **project picker** (the button showing your current project's name, or "Select a project").
+3. In the window that opens, click **New project** (top right).
+4. Fill in:
+   - **Project name:** `gmail-header-analyzer`
+   - **Organization / Location:** leave as **No organization**
+5. Click **Create** and wait a few seconds for the notification.
+6. Click the project picker again and select **gmail-header-analyzer**.
+
+**Check before every step below:** the project picker must show `gmail-header-analyzer`. Doing a step in the wrong project is the most common reason sign-in fails later.
+
+#### 3b. Enable the Gmail API
+
+1. Open [APIs & Services → Library](https://console.cloud.google.com/apis/library) (or ☰ menu → **APIs & Services** → **Library**).
+2. Search for **Gmail API** and click it.
+3. Click **Enable**.
+
+#### 3c. Set up the sign-in screen
+
+1. Open [Google Auth Platform](https://console.cloud.google.com/auth/overview), or type `Google Auth Platform` into the console search bar. (Older guides call this the "OAuth consent screen".)
+2. Click **Get started** and complete the four sections:
+
+   | Section | What to enter |
+   |---|---|
+   | **App information** | App name: `Gmail Header Analyzer`. User support email: your Gmail address. |
+   | **Audience** | Choose **External**. (*Internal* is only available to Google Workspace organisations.) |
+   | **Contact information** | Your Gmail address. |
+   | **Finish** | Tick the box to agree to the Google API Services User Data Policy. |
+
+3. Click **Create**.
+
+#### 3d. Add yourself as a test user
+
+The app stays in **Testing** mode, which means only accounts you list here can sign in. You don't need to publish it.
+
+1. In Google Auth Platform's left menu, click **Audience**.
+2. Under **Test users**, click **Add users**.
+3. Enter the Gmail address you'll analyse and click **Save**.
+
+#### 3e. Allow read-only Gmail access
+
+1. In the left menu, click **Data access**.
+2. Click **Add or remove scopes**.
+3. Find `https://www.googleapis.com/auth/gmail.readonly` using the filter box. If it's not listed, paste it into **Manually add scopes** and click **Add to table**.
+4. Tick it and click **Update**.
+5. Click **Save** at the bottom of the page.
+
+Google lists this as a "restricted" scope. That only matters if you publish the app to the public; for your own testing use it works as-is.
+
+#### 3f. Create the OAuth client
+
+1. In the left menu, click **Clients**, then **Create client**.
+2. Fill in:
+   - **Application type:** **Chrome Extension**
+   - **Name:** `Gmail Header Analyzer extension` (only you see this)
+   - **Item ID:** your extension ID from step 2 (32 letters, a–p only)
+3. Click **Create**.
+4. Copy the **Client ID**. It looks like `123456789012-abc123….apps.googleusercontent.com`. You can find it again later under **Clients**.
+
+#### 3g. Add the client ID to the extension
+
+From the project folder, run:
 
 ```bash
-npm run setup -- --client-id=YOUR_CLIENT_ID.apps.googleusercontent.com
+npm run setup -- --client-id=PASTE_YOUR_CLIENT_ID_HERE
 ```
 
-This writes `extension/manifest.json` (also gitignored).
+This writes `extension/manifest.json` (gitignored) with your client ID and key.
 
 ### 4. Load it in Chrome
 
