@@ -183,7 +183,7 @@ test("missing API keys degrade gracefully", async () => {
   assert.equal(r.ip.virustotal.status, "not_configured");
   assert.equal(r.domains[0].virustotal.status, "not_configured");
   assert.equal(r.ip.rdap.status, "ok", "keyless sources still work");
-  assert.equal(r.limits.virustotalSkipped, 0);
+  assert.deepEqual(r.limits, { virustotalBudget: 4, virustotalUsed: 0, virustotalSkipped: 0 });
 });
 
 test("upstream rate limits and outages are reported, not thrown", async () => {

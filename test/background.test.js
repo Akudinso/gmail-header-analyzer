@@ -13,6 +13,7 @@ const fetchCalls = [];
 globalThis.chrome = {
   runtime: {
     id: "ext-id",
+    getURL: (path) => `chrome-extension://ext-id/${path}`,
     onInstalled: { addListener() {} },
     onMessage: { addListener: (fn) => (onMessage = fn) },
   },
@@ -46,9 +47,22 @@ globalThis.chrome = {
   },
 };
 
-globalThis.fetch = async (url, opts) => {
+const workerCalls = [];
+const gmailFetch = async (url, opts) => {
   fetchCalls.push({ url: String(url), auth: opts?.headers?.Authorization });
   return new Response(JSON.stringify({ id: "18c5f2a9e4b1d3c7", raw: raw.toString("base64url") }), { status: 200 });
+};
+// Routes: extension config file, the Worker, and the Gmail API.
+globalThis.fetch = async (url, opts) => {
+  const u = String(url);
+  if (u === "chrome-extension://ext-id/config.json") {
+    return new Response(JSON.stringify({ workerUrl: "http://localhost:8787", workerKey: "k3y" }));
+  }
+  if (u === "http://localhost:8787/v1/enrich") {
+    workerCalls.push({ auth: opts.headers.authorization, body: JSON.parse(opts.body) });
+    return new Response(JSON.stringify({ ip: { value: "45.33.32.156", abuseipdb: { status: "ok", data: { abuseScore: 90 } } }, claimedIps: [], domains: [], urls: [], hashes: [], limits: {} }));
+  }
+  return gmailFetch(url, opts);
 };
 
 function send(msg, sender = { id: "ext-id", tab: { id: 7 } }) {
@@ -77,12 +91,25 @@ test("after connecting, the raw email is fetched and analysed", async () => {
   assert.equal(fetchCalls[0].auth, "Bearer fake-token");
 });
 
+test("indicators (not email content) are sent to the Worker with the Worker key", async () => {
+  const state = store.get("tab:7");
+  assert.equal(state.report.enrichment.status, "ok");
+  assert.equal(state.report.enrichment.results.ip.abuseipdb.data.abuseScore, 90);
+  assert.equal(workerCalls.length, 1);
+  assert.equal(workerCalls[0].auth, "Bearer k3y", "Worker key, never the Gmail token");
+  const sent = JSON.stringify(workerCalls[0].body);
+  assert.ok(!sent.includes("fake-token"));
+  assert.ok(!sent.includes("Dear customer"), "no body text");
+  assert.equal(workerCalls[0].body.ip, "45.33.32.156");
+});
+
 test("reopening the same email uses the cache", async () => {
   await send({ type: "gmail:closed" });
   assert.equal(store.get("tab:7").status, "idle");
   await send({ type: "gmail:open", messageIds: ["18c5f2a9e4b1d3c7"] });
   assert.equal(store.get("tab:7").status, "ready");
   assert.equal(fetchCalls.length, 1);
+  assert.equal(workerCalls.length, 1, "cached report keeps its lookups");
 });
 
 test("Re-analyse bypasses the cache", async () => {
@@ -94,6 +121,20 @@ test("messages from other extensions are ignored", async () => {
   const handled = onMessage({ type: "panel:disconnect" }, { id: "someone-else" }, () => {});
   assert.equal(handled, false);
   assert.ok(store.has("tab:7"));
+});
+
+test("an unreachable Worker doesn't break the header analysis", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).startsWith("http://localhost:8787")) throw new TypeError("Failed to fetch");
+    return realFetch(url, opts);
+  };
+  await send({ type: "panel:refresh", tabId: 7 }, { id: "ext-id" });
+  const state = store.get("tab:7");
+  assert.equal(state.status, "ready");
+  assert.equal(state.report.enrichment.status, "unreachable");
+  assert.match(state.report.enrichment.error, /Is it running/);
+  globalThis.fetch = realFetch;
 });
 
 test("Gmail API errors become a readable message", async () => {

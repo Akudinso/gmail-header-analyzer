@@ -128,7 +128,164 @@ function findings(r) {
   if (r.checks.linkTextMismatches) out.push(`${r.checks.linkTextMismatches} link(s) show one domain but go to another.`);
   if (r.checks.ipLinks) out.push(`${r.checks.ipLinks} link(s) point straight at an IP address.`);
   if (r.checks.riskyAttachments) out.push(`${r.checks.riskyAttachments} attachment(s) have a risky file type.`);
+  out.push(...lookupFindings(r.enrichment?.results));
   return out;
+}
+
+// ---------- lookups ----------
+
+const NEW_DOMAIN_DAYS = 30;
+const ok = (res) => res?.status === "ok" && res.data;
+const vtBad = (res) => (ok(res) ? res.data.malicious + res.data.suspicious : 0);
+
+function lookupFindings(x) {
+  if (!x) return [];
+  const out = [];
+  const abuse = ok(x.ip?.abuseipdb) ? x.ip.abuseipdb.data : null;
+  if (abuse && abuse.abuseScore >= 25) out.push(`Sender IP has an AbuseIPDB score of ${abuse.abuseScore}% (${abuse.totalReports} reports).`);
+  if (abuse?.isTor) out.push("Sender IP is a Tor exit node.");
+  if (vtBad(x.ip?.virustotal)) out.push(`${vtBad(x.ip.virustotal)} VirusTotal engine(s) flag the sender IP.`);
+  for (const d of x.domains ?? []) {
+    const age = ok(d.rdap) ? d.rdap.data.ageDays : null;
+    if (age != null && age < NEW_DOMAIN_DAYS) out.push(`${d.domain} (${d.roles.join(", ")}) was registered only ${age} day(s) ago.`);
+    if (vtBad(d.virustotal)) out.push(`${vtBad(d.virustotal)} VirusTotal engine(s) flag ${d.domain}.`);
+  }
+  for (const u of x.urls ?? []) if (vtBad(u.virustotal)) out.push(`VirusTotal flags a link: ${u.url}`);
+  for (const h of x.hashes ?? []) if (vtBad(h.virustotal)) out.push(`VirusTotal flags an attachment${h.virustotal.data.threatLabel ? ` as ${h.virustotal.data.threatLabel}` : ""}.`);
+  return out;
+}
+
+const STATUS_TEXT = {
+  not_found: "Not known",
+  skipped: "VirusTotal skipped (free-tier budget)",
+  rate_limited: "Rate limited; try Re-analyse in a minute",
+  not_configured: "No API key on the Worker",
+};
+
+function statusLine(res) {
+  if (!res || res.status === "ok") return null;
+  return el("span", { class: "muted", text: res.status === "error" ? `Lookup failed: ${res.error}` : STATUS_TEXT[res.status] ?? res.status });
+}
+
+function vtChip(res) {
+  if (!ok(res)) return null;
+  const { malicious, suspicious, harmless, undetected } = res.data;
+  const total = malicious + suspicious + harmless + undetected;
+  const bad = malicious + suspicious;
+  return el("span", { class: `chip ${bad ? "fail" : "pass"}`, title: `${malicious} malicious, ${suspicious} suspicious, ${harmless} harmless, ${undetected} undetected` }, `VirusTotal ${bad}/${total}`);
+}
+
+function row(label, ...value) {
+  return [el("dt", { text: label }), el("dd", {}, ...value)];
+}
+
+function renderLookups(enrichment) {
+  if (!enrichment || enrichment.status === "off") {
+    return card("Reputation lookups", el("p", { class: "muted", style: "margin:0", text: "Not set up. See \"Turn on lookups\" in the README to add VirusTotal, AbuseIPDB and domain age." }));
+  }
+  if (enrichment.status === "loading") {
+    return card("Reputation lookups", el("p", { class: "muted", style: "margin:0", text: "Checking IP, domains, links and attachments…" }));
+  }
+  if (enrichment.status !== "ok") {
+    return card("Reputation lookups", el("p", { class: "muted", style: "margin:0", text: enrichment.error ?? "Lookups failed." }));
+  }
+  const x = enrichment.results;
+  if (!x) return card("Reputation lookups", el("p", { class: "muted", style: "margin:0", text: "Nothing to look up in this email." }));
+
+  const parts = [];
+
+  if (x.ip) {
+    const a = ok(x.ip.abuseipdb) ? x.ip.abuseipdb.data : null;
+    const vt = ok(x.ip.virustotal) ? x.ip.virustotal.data : null;
+    const rd = ok(x.ip.rdap) ? x.ip.rdap.data : null;
+    const ptr = ok(x.ip.reverseDns) ? x.ip.reverseDns.data.names : null;
+    parts.push(
+      el("h3", { class: "sub", text: `Sender IP ${x.ip.value}` }),
+      el("div", { class: "chips", style: "margin-bottom:6px" },
+        a ? el("span", { class: `chip ${a.abuseScore >= 75 ? "fail" : a.abuseScore >= 25 ? "warn" : "pass"}` }, `AbuseIPDB ${a.abuseScore}%`) : null,
+        vtChip(x.ip.virustotal),
+        a?.isTor ? el("span", { class: "chip fail", text: "Tor exit" }) : null
+      ),
+      el("dl", { class: "kv" },
+        row("Owner", rd?.organisation ?? vt?.asOwner ?? a?.isp ?? "—"),
+        vt?.asn ? row("ASN", `AS${vt.asn}${vt.asOwner ? ` · ${vt.asOwner}` : ""}`) : null,
+        row("Network", rd ? `${rd.name ?? ""} ${rd.range ? `(${rd.range})` : ""}`.trim() || "—" : "—"),
+        row("Country", a?.country ?? vt?.country ?? rd?.country ?? "—"),
+        a?.usageType ? row("Usage", a.usageType) : null,
+        row("Reverse DNS", ptr ? ptr.join(", ") : x.ip.reverseDns?.status === "not_found" ? "None (no PTR record)" : "—"),
+        a ? row("Reports", `${a.totalReports} from ${a.distinctReporters} source(s)${a.lastReportedAt ? `, last ${a.lastReportedAt.slice(0, 10)}` : ""}`) : row("AbuseIPDB", statusLine(x.ip.abuseipdb)),
+        !vt ? row("VirusTotal", statusLine(x.ip.virustotal)) : null
+      )
+    );
+  }
+
+  if (x.claimedIps?.length) {
+    parts.push(
+      el("h3", { class: "sub", text: "Unverified IPs" }),
+      el("ul", { class: "list" },
+        x.claimedIps.map((c) => {
+          const a = ok(c.abuseipdb) ? c.abuseipdb.data : null;
+          return el("li", {}, el("span", { class: "mono", text: c.value }), " ",
+            a ? el("span", { class: `chip ${a.abuseScore >= 25 ? "warn" : ""}`, text: `AbuseIPDB ${a.abuseScore}% · ${a.country ?? "?"} · ${a.isp ?? "?"}` }) : statusLine(c.abuseipdb));
+        })
+      )
+    );
+  }
+
+  if (x.domains?.length) {
+    parts.push(
+      el("h3", { class: "sub", text: "Domains" }),
+      el("ul", { class: "list" },
+        x.domains.map((d) => {
+          const rd = ok(d.rdap) ? d.rdap.data : null;
+          const isNew = rd?.ageDays != null && rd.ageDays < NEW_DOMAIN_DAYS;
+          return el("li", {},
+            el("div", { class: "chips", style: "margin-bottom:4px" },
+              el("strong", { class: "mono", text: d.domain }),
+              d.roles.map((role) => el("span", { class: "chip", text: role })),
+              isNew ? el("span", { class: "chip fail", text: `${rd.ageDays}d old` }) : null,
+              vtChip(d.virustotal)
+            ),
+            el("div", { class: "muted" },
+              rd ? `Registered ${rd.createdAt ? rd.createdAt.slice(0, 10) : "date unknown"}${rd.registrar ? ` via ${rd.registrar}` : ""}` : d.rdap?.status === "not_found" ? "No RDAP record (registry may not publish one)" : `Registration: ${d.rdap?.error ?? d.rdap?.status ?? "—"}`,
+              !ok(d.virustotal) && d.virustotal?.status !== "not_configured" ? [" · ", statusLine(d.virustotal)] : null
+            )
+          );
+        })
+      )
+    );
+  }
+
+  if (x.urls?.length) {
+    parts.push(
+      el("h3", { class: "sub", text: "Suspicious links" }),
+      el("ul", { class: "list" }, x.urls.map((u) => el("li", {}, el("div", { class: "mono", text: u.url }), el("div", { class: "chips", style: "margin-top:4px" }, vtChip(u.virustotal) ?? statusLine(u.virustotal)))))
+    );
+  }
+
+  if (x.hashes?.length) {
+    parts.push(
+      el("h3", { class: "sub", text: "Attachment hashes" }),
+      el("ul", { class: "list" },
+        x.hashes.map((h) => {
+          const vt = ok(h.virustotal) ? h.virustotal.data : null;
+          return el("li", {},
+            el("div", { class: "mono muted", text: h.sha256 }),
+            el("div", { class: "chips", style: "margin-top:4px" },
+              vtChip(h.virustotal) ?? (h.virustotal?.status === "not_found" ? el("span", { class: "muted", text: "Never seen by VirusTotal (unknown file, not proof it's safe)" }) : statusLine(h.virustotal)),
+              vt?.threatLabel ? el("span", { class: "chip fail", text: vt.threatLabel }) : null
+            )
+          );
+        })
+      )
+    );
+  }
+
+  if (x.limits?.virustotalSkipped) {
+    parts.push(el("p", { class: "muted", style: "margin:8px 0 0", text: `${x.limits.virustotalSkipped} VirusTotal lookup(s) skipped to stay within the free tier. Press Re-analyse in a minute to fill them in.` }));
+  }
+
+  return card("Reputation lookups", ...parts);
 }
 
 function renderReport(r, state) {
@@ -152,8 +309,7 @@ function renderReport(r, state) {
         s.replyTo ? [el("dt", { text: "Reply-To" }), el("dd", { text: fmtAddress(s.replyTo) })] : null,
         el("dt", { text: "Return-Path" }), el("dd", { text: s.returnPath?.email ?? "—" }),
         el("dt", { text: "Date" }), el("dd", { text: s.date ?? "—" })
-      ),
-      el("p", { class: "muted", style: "margin:8px 0 0" }, "Risk score and lookups arrive in the next release.")
+      )
     )
   );
 
@@ -164,6 +320,8 @@ function renderReport(r, state) {
       el("ul", { class: "flags" }, f.length ? f.map((t) => el("li", { text: t })) : el("li", { class: "ok", text: "No red flags in headers, links or attachments." }))
     )
   );
+
+  app.append(renderLookups(r.enrichment));
 
   app.append(
     card(

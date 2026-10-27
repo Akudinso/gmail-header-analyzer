@@ -118,7 +118,7 @@ export async function enrich(req, env) {
   const vtKey = (kind, value) => `${kind}:${value}`;
   // Cached VirusTotal answers are free, so serve those first and spend the
   // budget only on indicators VirusTotal hasn't been asked about recently.
-  const all = planVirusTotal(req, Infinity).run;
+  const all = env.VT_API_KEY ? planVirusTotal(req, Infinity).run : [];
   const uncached = [];
   for (const t of all) {
     const hit = env.VT_API_KEY ? await cache.get(`vt:${t.kind}:${t.value}`) : null;

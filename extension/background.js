@@ -6,10 +6,58 @@
 
 import { base64ToBytes } from "./lib/encoding.js";
 import { analyseRawMessage } from "./lib/analyse.js";
+import { buildEnrichRequest, isEmptyRequest } from "./lib/enrich-request.js";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me/messages";
 const CACHE_LIMIT = 25;
+const ENRICH_TIMEOUT_MS = 30000;
 const requestSeq = new Map(); // tabId -> latest request number (drops stale results)
+
+// ---------- Worker config (written by `npm run setup` into config.json) ----------
+
+let configPromise = null;
+function loadConfig() {
+  configPromise ??= fetch(chrome.runtime.getURL("config.json"))
+    .then((r) => (r.ok ? r.json() : {}))
+    .catch(() => ({}));
+  return configPromise;
+}
+
+/** Ask the Worker about the report's indicators. Never throws. */
+async function enrichReport(report) {
+  const { workerUrl, workerKey } = await loadConfig();
+  if (!workerUrl || !workerKey) return { status: "off" };
+  const request = buildEnrichRequest(report);
+  if (isEmptyRequest(request)) return { status: "ok", request, results: null };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ENRICH_TIMEOUT_MS);
+  try {
+    const res = await fetch(new URL("/v1/enrich", workerUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${workerKey}` },
+      body: JSON.stringify(request),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      const hints = {
+        401: "The Worker rejected the extension's key. Re-run `npm run setup` and restart the Worker.",
+        403: "The Worker doesn't allow this extension's ID. Re-run `npm run setup` and restart the Worker.",
+        503: "The Worker has no WORKER_KEY set.",
+      };
+      return { status: "error", request, error: hints[res.status] ?? `Worker error ${res.status}${detail.error ? `: ${detail.error}` : ""}` };
+    }
+    return { status: "ok", request, results: await res.json() };
+  } catch (err) {
+    return {
+      status: "unreachable",
+      request,
+      error: err?.name === "AbortError" ? "The Worker took too long to answer." : `Couldn't reach the Worker at ${workerUrl}. Is it running?`,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
@@ -128,10 +176,18 @@ async function analyse(tabId, messageId, { force = false } = {}) {
     if (!report) {
       const bytes = await fetchRawMessage(messageId);
       report = await analyseRawMessage(bytes, { messageId });
-      await cachePut(messageId, report);
     }
     if (stale()) return;
+    // Show the header analysis straight away; lookups fill in when they arrive.
+    const needsLookups = report.enrichment?.status !== "ok";
+    if (needsLookups) report.enrichment = { status: "loading" };
     await setTabState(tabId, { status: "ready", report });
+    if (needsLookups) {
+      report.enrichment = await enrichReport(report);
+      if (stale()) return;
+      await setTabState(tabId, { status: "ready", report });
+    }
+    await cachePut(messageId, report);
   } catch (err) {
     if (stale()) return;
     if (err instanceof AuthNeededError) {
