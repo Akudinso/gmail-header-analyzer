@@ -1,0 +1,9 @@
+# Copy to worker/.dev.vars (gitignored) and fill in. Used by `npm run worker:dev`.
+ALLOWED_ORIGINS=chrome-extension://YOUR_EXTENSION_ID
+
+# Free keys: https://www.virustotal.com/gui/join-us  and  https://www.abuseipdb.com/register
+VT_API_KEY=
+ABUSEIPDB_API_KEY=
+
+# AI provider key for the email summary (roadmap step 5).
+AI_API_KEY=

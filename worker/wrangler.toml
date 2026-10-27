@@ -1,0 +1,12 @@
+name = "gmail-header-analyzer"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# Comma-separated list of origins allowed to call the Worker.
+# Set this to your own extension: chrome-extension://<your extension ID>
+# (`npm run setup` prints the ID). Override locally in worker/.dev.vars.
+ALLOWED_ORIGINS = ""
+
+# Secrets are NOT set here. Locally: copy worker/.dev.vars.example to
+# worker/.dev.vars. In production: `npx wrangler secret put VT_API_KEY --config worker/wrangler.toml`

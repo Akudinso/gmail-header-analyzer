@@ -1,0 +1,22 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run tests (no install needed — tests use only Node built-ins)
+        run: npm test
+      - name: Check the manifest template is valid JSON
+        run: node -e "JSON.parse(require('fs').readFileSync('extension/manifest.template.json','utf8'))"
