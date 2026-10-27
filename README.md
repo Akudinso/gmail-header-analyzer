@@ -48,7 +48,7 @@ You need: Google Chrome (116+), [Node.js 22+](https://nodejs.org/), and a Google
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/<your-username>/gmail-header-analyzer.git
+git clone https://github.com/Akudinso/gmail-header-analyzer.git
 cd gmail-header-analyzer
 npm install
 ```
