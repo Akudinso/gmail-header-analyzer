@@ -166,7 +166,7 @@ function lookupFindings(x) {
 }
 
 const STATUS_TEXT = {
-  not_found: "Not known",
+  not_found: "Not in VirusTotal's database",
   skipped: "VirusTotal skipped (free-tier budget)",
   rate_limited: "Rate limited; try Re-analyse in a minute",
   not_configured: "No API key on the Worker",
@@ -289,7 +289,11 @@ function renderLookups(enrichment) {
   if (x.urls?.length) {
     parts.push(
       el("h3", { class: "sub", text: "Suspicious links" }),
-      el("ul", { class: "list" }, x.urls.map((u) => el("li", {}, el("div", { class: "mono", text: u.url }), el("div", { class: "chips", style: "margin-top:4px" }, vtChip(u.virustotal) ?? statusLine(u.virustotal)))))
+      el("ul", { class: "list" }, x.urls.map((u) => el("li", {}, el("div", { class: "mono", text: u.url }), el("div", { class: "chips", style: "margin-top:4px" },
+                  vtChip(u.virustotal) ??
+                    (u.virustotal?.status === "not_found"
+                      ? el("span", { class: "muted", text: "VirusTotal has never scanned this exact URL. That means it's new or rarely seen, not that it's safe." })
+                      : statusLine(u.virustotal))))))
     );
   }
 
