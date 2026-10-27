@@ -195,11 +195,27 @@ You can skip either one. Domain age (RDAP) and reverse DNS need no key and work 
 
 #### 6b. Run the Worker on your computer
 
-```bash
-npm run worker:dev
-```
+The Worker is a small server program. The extension sends it each email's IPs, domains and hashes, and the Worker asks VirusTotal and AbuseIPDB about them. The extension can only get lookups while the Worker is running.
 
-Leave that terminal open while you use Gmail. The extension already points at `http://localhost:8787`, so open an email and the **Reputation lookups** section fills in.
+1. Open a terminal (Terminal on Mac, PowerShell on Windows) and go to the project folder:
+   ```bash
+   cd path/to/gmail-header-analyzer
+   ```
+2. Start the Worker:
+   ```bash
+   npm run worker:dev
+   ```
+3. Wait until it prints a line like `Ready on http://localhost:8787`.
+   - `localhost` means "this computer".
+   - `8787` is the port the Worker listens on.
+   - `npm run setup` already saved this address in the extension, so there's nothing to type into Chrome.
+4. **Leave this terminal window open.** You can minimise it. The Worker runs only while that command runs; closing the window or pressing `Ctrl+C` stops it.
+5. Optional check: open [http://localhost:8787/health](http://localhost:8787/health) in Chrome. You should see `"virustotal":true` and `"abuseipdb":true` for each key you added.
+6. In Gmail, open an email. The **Reputation lookups** section in the side panel fills in after a few seconds.
+
+If the Worker isn't running, the header analysis still works and the lookups section says *"Couldn't reach the Worker"*. Start it again with step 2 and press **Re-analyse**.
+
+You'll need to run `npm run worker:dev` again each time you restart your computer. To avoid that, deploy it instead (6c).
 
 #### 6c. Or deploy it, so it's always on (free)
 
