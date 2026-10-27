@@ -112,11 +112,17 @@ This is free. You don't need billing, a credit card or the "$300 free trial" ban
 
 #### 3d. Add yourself as a test user
 
-The app stays in **Testing** mode, which means only accounts you list here can sign in. You don't need to publish it.
+The app stays in **Testing** mode, which means Google only lets the accounts you list here sign in to it. You don't need to publish it.
+
+The address to add is **your own Gmail address**: the inbox you'll be opening emails in while the extension runs (for example `yourname@gmail.com`). It is *not* the address of anyone who sends you email; the extension can analyse mail from any sender.
 
 1. In Google Auth Platform's left menu, click **Audience**.
 2. Under **Test users**, click **Add users**.
-3. Enter the Gmail address you'll analyse and click **Save**.
+3. Type your own Gmail address and click **Save**.
+
+If you use more than one Gmail account and want to analyse each of them, add each address here.
+
+> **One account must match three places:** the test user you add here, the Gmail inbox you have open, and the Google account Chrome itself is signed into (click your profile picture at the top right of Chrome to check). The extension signs in with Chrome's account, so if that differs from the Gmail tab, it will be looking in the wrong mailbox.
 
 #### 3e. Allow read-only Gmail access
 
@@ -189,6 +195,7 @@ test/                      node:test suites and sample .eml fixtures
 |---|---|
 | `bad client id` or sign-in window errors | The ID at `chrome://extensions` must match the **Item ID** on your OAuth client. Re-run `npm run setup` and compare. |
 | "Access denied" (403) | Gmail API not enabled, or your Gmail address isn't on the **Test users** list. |
+| "couldn't find this message ID" on every email | The Gmail tab is a different account from the one Chrome is signed into. See the note in step 3d. |
 | "couldn't find this message ID" (404) | Gmail may have changed its page markup. Please [open an issue](../../issues) with your Chrome version. |
 | Asked to connect again after about a week | Normal for apps in Testing mode: Google expires their sign-in after 7 days. Click **Connect Gmail** again. |
 | Panel says "Open Gmail in this tab" while Gmail is open | Refresh the Gmail tab (needed once after installing or reloading the extension). |
