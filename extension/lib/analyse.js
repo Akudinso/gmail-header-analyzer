@@ -71,7 +71,7 @@ export function determineSenderIp(headers, hops) {
     const h = hops[i];
     if (h.by && GOOGLE_HOST.test(h.by) && h.publicIps.length) {
       entryIndex = i;
-      verified = { ip: h.publicIps[0], source: `Received hop ${i + 1} (connection into ${h.by})` };
+      verified = { ip: h.publicIps[0], hop: i, source: `Received hop ${i + 1} (connection into ${h.by})` };
       break;
     }
   }

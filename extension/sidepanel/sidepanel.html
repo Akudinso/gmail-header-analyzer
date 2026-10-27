@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Email analysis</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <span>Header Analyzer</span>
+      </div>
+      <div class="actions">
+        <button id="refresh" class="ghost" title="Fetch and analyse again" hidden>Re-analyse</button>
+        <button id="copy" class="ghost" title="Copy the report as JSON" hidden>Copy JSON</button>
+      </div>
+    </header>
+    <main id="app" aria-live="polite"></main>
+    <footer class="foot">
+      <button id="disconnect" class="link">Disconnect Gmail</button>
+    </footer>
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

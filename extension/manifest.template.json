@@ -9,7 +9,7 @@
     "scopes": ["https://www.googleapis.com/auth/gmail.readonly"]
   },
   "permissions": ["identity", "storage", "sidePanel"],
-  "host_permissions": ["https://gmail.googleapis.com/*"],
+  "host_permissions": ["https://gmail.googleapis.com/*", "https://oauth2.googleapis.com/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
