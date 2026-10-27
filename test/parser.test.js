@@ -176,3 +176,31 @@ test("hostile input stays bounded", async () => {
   const r = await analyseRawMessage(toBytes(`From: a@b.c\n${nested}`));
   assert.ok(r); // no stack overflow / hang
 });
+
+test("real-world pattern: forged Google hop, lying HELO, no DMARC, shared-hosting links", async () => {
+  const r = await analyseRawMessage(fixture("forged-helo.eml"));
+  // The newest google.com hop is the real entry point; the older one was written by the sender.
+  assert.equal(r.senderIp.verified.ip, "45.33.32.156");
+  assert.equal(r.senderIp.sentViaGoogle, false, "HELO says docs.google.com, but the HELO name is self-reported");
+  assert.deepEqual(r.senderIp.forgedGoogleHops, [{ hop: 0, ip: "185.199.108.153", by: "mx.google.com" }]);
+  assert.deepEqual(r.senderIp.heloMismatch, { helo: "docs.google.com", reverseDns: "host.unrelated-university.edu", ip: "45.33.32.156" });
+  assert.equal(r.checks.noDmarc, true);
+  assert.equal(r.checks.dkimNotAligned, true);
+  assert.equal(r.checks.sharedHostingLinks, 2);
+  assert.equal(r.urls.find((u) => u.host === "support.google.com").sharedHosting, false);
+});
+
+test("legit Gmail-to-Gmail forwarding is not mistaken for a forged hop", async () => {
+  const raw = [
+    "Received: from mail-sor-f41.google.com (mail-sor-f41.google.com. [209.85.220.41]) by mx.google.com with SMTPS id a; Mon, 26 Oct 2026 08:00:05 -0700",
+    "Received: from mail.example.org (mail.example.org. [45.33.32.156]) by mx.google.com with ESMTPS id b; Mon, 26 Oct 2026 08:00:00 -0700",
+    "From: a@example.org",
+    "Subject: fwd",
+    "",
+    "hi",
+  ].join("\n");
+  const r = await analyseRawMessage(new TextEncoder().encode(raw));
+  assert.equal(r.senderIp.sentViaGoogle, true);
+  assert.deepEqual(r.senderIp.forgedGoogleHops, []);
+  assert.equal(r.senderIp.heloMismatch, null);
+});

@@ -39,7 +39,9 @@ export function parseReceived(value) {
     fromIdx >= 0 ? main.slice(fromIdx, byIdx > fromIdx ? byIdx : undefined) : "";
 
   const fromHost = /\bfrom\s+(\S+)/i.exec(fromSection)?.[1] ?? null;
-  const rdns = /\(([^\s()\[\]]+?)\.?\s*\[/.exec(fromSection)?.[1] ?? null;
+  // Gmail writes the PTR name it looked up in brackets, or "unknown" when there is none.
+  let rdns = /\(([^\s()\[\]]+?)\.?\s*\[/.exec(fromSection)?.[1] ?? null;
+  if (rdns && rdns.toLowerCase() === "unknown") rdns = null;
   const by = /\bby\s+(\S+)/i.exec(main)?.[1] ?? null;
   const withProto = /\bwith\s+(\S+)/i.exec(main)?.[1] ?? null;
   const ips = extractIps(fromSection);

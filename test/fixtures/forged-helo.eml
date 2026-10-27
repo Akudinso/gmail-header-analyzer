@@ -1,0 +1,27 @@
+Delivered-To: victim@gmail.com
+Received: by 2002:a5d:6e85:0:b0:48e:16cc:8a9c with SMTP id k5csp123;
+        Sun, 25 Oct 2026 11:19:41 -0700 (PDT)
+Return-Path: <530-61195@sb037.example-invest.my.id>
+Received: from docs.google.com (host.unrelated-university.edu. [45.33.32.156])
+        by mx.google.com with ESMTPS id a1si5.2026.10.25.11.19.40
+        for <victim@gmail.com>;
+        Sun, 25 Oct 2026 11:19:40 -0700 (PDT)
+Received-SPF: pass (google.com: domain of 530-61195@sb037.example-invest.my.id designates 45.33.32.156 as permitted sender) client-ip=45.33.32.156;
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@530.61195.kkvy.sb037.example-invest.my.id header.s=s1 header.b=AbC;
+       spf=pass (google.com: domain of 530-61195@sb037.example-invest.my.id designates 45.33.32.156 as permitted sender) smtp.mailfrom=530-61195@sb037.example-invest.my.id
+Received: from efianalytics.example (efianalytics.example [185.199.108.153])
+        by mx.google.com with ESMTPS id zz9si1.2026.10.25.04.19.00
+        for <victim@gmail.com>;
+        Sun, 25 Oct 2026 04:19:00 -0700 (PDT)
+From: victim <alert-530-61195@adewo.ikz>
+To: victim@gmail.com
+Subject: Storage 100% Used Free Up Space
+Date: Sun, 25 Oct 2026 18:19:34 +0000
+Message-ID: <x1@adewo.ikz>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><body><a href="https://storage.googleapis.com/newapdikes/westincjava.html?act=cl&amp;pid=16543">Payment failed for your Cloud storage renewal</a>
+<a href="https://storage.googleapis.com/newapdikes/westincjava.html?act=un&amp;pid=16543">Unsubscribe</a>
+<a href="https://support.google.com/mail">Help</a></body></html>

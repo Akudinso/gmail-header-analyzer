@@ -162,3 +162,4 @@ h3.sub {
   font-weight: 600;
 }
 h3.sub:first-of-type { margin-top: 0; }
+.hop.forged .n { background: var(--fail-bg); color: var(--fail); }

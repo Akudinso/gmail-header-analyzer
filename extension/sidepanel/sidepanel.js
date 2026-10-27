@@ -117,6 +117,12 @@ function findings(r) {
   const out = [];
   const a = r.auth;
   if (!a.trustedSource) out.push("No Authentication-Results from Google found — results can't be verified.");
+  if (r.checks.forgedGoogleHops) out.push(`${r.checks.forgedGoogleHops} Received header(s) claim Google handled this email earlier, but Google didn't write them. The sender forged them to make the path look trustworthy.`);
+  if (r.checks.heloMismatch) {
+    const m = r.senderIp.heloMismatch;
+    out.push(`The sending server introduced itself as ${m.helo}, but Google recorded its address as ${m.reverseDns} [${m.ip}].`);
+  }
+  if (r.checks.noDmarc) out.push(`No DMARC result for ${r.summary.from?.domain ?? "the From domain"}, so nothing stops others sending as it.`);
   if (a.dmarc?.result === "fail") out.push(`DMARC failed for ${a.dmarc.domain ?? "the From domain"}${a.dmarc.policy ? ` (policy: ${a.dmarc.policy})` : ""}.`);
   if (a.spf && a.spf.result !== "pass") out.push(`SPF ${a.spf.result} for ${a.spf.domain ?? "the envelope sender"}.`);
   if (!a.dkim) out.push("Message has no DKIM signature.");
@@ -126,6 +132,7 @@ function findings(r) {
   if (r.checks.dkimNotAligned) out.push(`DKIM signed by ${a.dkim.domain}, which isn't the From domain.`);
   if (r.checks.displayNameHasEmail) out.push("The display name contains a different email address.");
   if (r.checks.linkTextMismatches) out.push(`${r.checks.linkTextMismatches} link(s) show one domain but go to another.`);
+  if (r.checks.sharedHostingLinks) out.push(`${r.checks.sharedHostingLinks} link(s) go to shared hosting where anyone can publish a page, so the parent domain's reputation doesn't vouch for it.`);
   if (r.checks.ipLinks) out.push(`${r.checks.ipLinks} link(s) point straight at an IP address.`);
   if (r.checks.riskyAttachments) out.push(`${r.checks.riskyAttachments} attachment(s) have a risky file type.`);
   out.push(...lookupFindings(r.enrichment?.results));
@@ -261,7 +268,6 @@ function renderLookups(enrichment) {
               isNew ? el("span", { class: "chip fail", text: `${rd.ageDays}d old` }) : null,
               dns && !dns.tldExists ? el("span", { class: "chip fail", text: "fake TLD" }) : null,
               dns && dns.tldExists && !dns.domainExists ? el("span", { class: "chip fail", text: "doesn't exist" }) : null,
-              dns && dns.domainExists && !dns.hasMx && !dns.hasAddress ? el("span", { class: "chip warn", text: "can't receive mail" }) : null,
               vtChip(d.virustotal)
             ),
             el("div", { class: "muted" },
@@ -363,6 +369,11 @@ function renderReport(r, state) {
         ? el("div", {}, el("div", { class: "mono", text: ip.verified.ip }), el("div", { class: "muted", text: ip.verified.source }))
         : el("div", { class: "muted", text: "No Google-recorded connection found." }),
       ip.sentViaGoogle ? el("p", { class: "muted", style: "margin:6px 0 0", text: "Sent through Google's own servers, so the original sender's IP is hidden by design." }) : null,
+      ip.heloMismatch
+        ? el("p", { style: "margin:6px 0 0" },
+            el("span", { class: "chip fail", text: "identity mismatch" }), " ",
+            el("span", { class: "muted", text: `Claimed to be ${ip.heloMismatch.helo}; reverse DNS says ${ip.heloMismatch.reverseDns}.` }))
+        : null,
       ip.claimed.length
         ? el("details", { style: "margin-top:8px" },
             el("summary", { text: `Unverified IPs claimed in the message (${ip.claimed.length})` }),
@@ -373,14 +384,17 @@ function renderReport(r, state) {
   );
 
   const trustedHop = ip.verified?.hop ?? -1;
+  const forgedHops = new Set((ip.forgedGoogleHops ?? []).map((f) => f.hop));
   app.append(
     card(
       `Received path (${r.hops.length} hops, oldest first)`,
       el("ul", { class: "list" },
         r.hops.map((h, i) =>
-          el("li", { class: `hop${i === trustedHop ? " trusted" : ""}` },
+          el("li", { class: `hop${i === trustedHop ? " trusted" : ""}${forgedHops.has(i) ? " forged" : ""}` },
             el("span", { class: "n", text: i + 1 }),
             el("div", {},
+              forgedHops.has(i) ? el("span", { class: "chip fail", style: "margin-bottom:4px", text: "forged: Google didn't write this" }) : null,
+              i === trustedHop ? el("span", { class: "chip pass", style: "margin-bottom:4px", text: "entered Google here" }) : null,
               el("div", {}, el("span", { class: "muted", text: "from " }), el("span", { class: "mono", text: h.fromHost ?? "—" }), h.ips.length ? el("span", { class: "mono", text: ` [${h.ips.join(", ")}]` }) : null),
               el("div", {}, el("span", { class: "muted", text: "by " }), el("span", { class: "mono", text: h.by ?? "—" }), h.with ? el("span", { class: "muted", text: ` · ${h.with}` }) : null, fmtDelay(h.delaySeconds) ? el("span", { class: "muted", text: ` · ${fmtDelay(h.delaySeconds)}` }) : null)
             )
@@ -400,7 +414,8 @@ function renderReport(r, state) {
                 el("div", { class: "chips", style: "margin-bottom:4px" },
                   el("span", { class: "chip", text: u.domain ?? u.host }),
                   u.textMismatch ? el("span", { class: "chip fail", text: "text ≠ destination" }) : null,
-                  u.isIp ? el("span", { class: "chip warn", text: "IP address" }) : null
+                  u.isIp ? el("span", { class: "chip warn", text: "IP address" }) : null,
+                  u.sharedHosting ? el("span", { class: "chip warn", text: "shared hosting" }) : null
                 ),
                 el("div", { class: "mono", text: u.url }),
                 u.texts.length ? el("div", { class: "muted", text: `Shown as: ${u.texts.join(" | ")}` }) : null

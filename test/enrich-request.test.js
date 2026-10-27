@@ -39,3 +39,10 @@ test("what the extension builds passes the Worker's validation", async () => {
 test("empty request detection", () => {
   assert.equal(isEmptyRequest({ ip: null, claimedIps: [], domains: [], urls: [], hashes: [] }), true);
 });
+
+test("shared-hosting links are looked up in full; ordinary Google links are not", async () => {
+  const req = buildEnrichRequest(await load("forged-helo.eml"));
+  assert.equal(req.urls.length, 2);
+  assert.ok(req.urls.every((u) => u.startsWith("https://storage.googleapis.com/")));
+  assert.deepEqual(req.domains.map((d) => d.domain).sort(), ["adewo.ikz", "example-invest.my.id", "google.com", "googleapis.com"]);
+});

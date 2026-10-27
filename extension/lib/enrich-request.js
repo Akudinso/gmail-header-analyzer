@@ -4,6 +4,12 @@
 // full URLs are sent only for links that already look suspicious, because
 // ordinary links (password resets, unsubscribe links, shared docs) often
 // contain personal tokens. Every link's *domain* is still checked.
+//
+// "Suspicious" = the link text points elsewhere, the link is a bare IP, or it
+// is on shared hosting where anyone can publish (storage.googleapis.com,
+// *.github.io, *.web.app ...), where the parent domain's good reputation says
+// nothing about the page. Shared document services (docs.google.com,
+// SharePoint) are deliberately not included: their links are often private.
 
 import { lookupDomain } from "./netutil.js";
 
@@ -24,7 +30,8 @@ export function buildEnrichRequest(report) {
   addRole(s.sender?.domain, "sender");
   addRole(report.auth.dkim?.domain, "dkim");
   // Suspicious links' domains first so they survive the cap.
-  const urls = [...report.urls].sort((a, b) => Number(b.textMismatch || b.isIp) - Number(a.textMismatch || a.isIp));
+  const suspicious = (u) => u.textMismatch || u.isIp || u.sharedHosting;
+  const urls = [...report.urls].sort((a, b) => Number(suspicious(b)) - Number(suspicious(a)));
   for (const u of urls) if (!u.isIp) addRole(u.host, "link");
 
   const rank = (r) => (r.has("from") ? 0 : [...r].some((x) => x !== "link") ? 1 : 2);
@@ -39,7 +46,7 @@ export function buildEnrichRequest(report) {
     ip: report.senderIp.verified?.ip ?? null,
     claimedIps: report.senderIp.claimed.map((c) => c.ip).filter((ip) => ip !== report.senderIp.verified?.ip).slice(0, MAX.claimedIps),
     domains,
-    urls: report.urls.filter((u) => u.textMismatch || u.isIp).map((u) => u.url).slice(0, MAX.urls),
+    urls: urls.filter(suspicious).map((u) => u.url).slice(0, MAX.urls),
     hashes: attachments.map((a) => a.sha256).filter(Boolean).slice(0, MAX.hashes),
   };
 }

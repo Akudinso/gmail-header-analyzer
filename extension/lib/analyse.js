@@ -96,13 +96,37 @@ export function determineSenderIp(headers, hops) {
   }
   // If the server that handed the message to Gmail is itself Google's
   // (Gmail / Workspace sender), the real originating IP is hidden by design.
+  // Only the reverse DNS name counts here: Google looked that up itself,
+  // whereas the "from" (HELO) name is whatever the sending server claimed.
   const entry = entryIndex >= 0 ? hops[entryIndex] : null;
-  const sentViaGoogle = Boolean(entry && GOOGLE_HOST.test(entry.reverseDns || entry.fromHost || ""));
+  const sentViaGoogle = Boolean(entry?.reverseDns && GOOGLE_HOST.test(entry.reverseDns));
+
+  // The HELO name is self-reported. If it belongs to a different organisation
+  // than the reverse DNS name Google recorded, the server lied about who it is
+  // (e.g. "docs.google.com" from an OVH server).
+  const heloMismatch =
+    entry?.fromHost && entry.reverseDns && !/^\[?[\d.:a-f]+\]?$/i.test(entry.fromHost) && !sameOrg(entry.fromHost, entry.reverseDns)
+      ? { helo: entry.fromHost, reverseDns: entry.reverseDns, ip: verified.ip }
+      : null;
+
+  // Older hops that claim a google.com server received the message from a
+  // public IP, when the real entry server isn't Google's, were written by the
+  // sender to make the path look trustworthy. (Forwarding between Gmail
+  // accounts also leaves older Google hops, but then the entry server IS Google.)
+  const forgedGoogleHops =
+    entry && !sentViaGoogle
+      ? hops
+          .map((h, i) => ({ h, i }))
+          .filter(({ h, i }) => i < entryIndex && h.by && GOOGLE_HOST.test(h.by) && h.publicIps.length)
+          .map(({ h, i }) => ({ hop: i, ip: h.publicIps[0], by: h.by }))
+      : [];
 
   return {
     verified,
     claimed: claimed.filter((c, i, arr) => arr.findIndex((x) => x.ip === c.ip) === i),
     sentViaGoogle,
+    heloMismatch,
+    forgedGoogleHops,
   };
 }
 
@@ -148,6 +172,9 @@ export function extractUrls(html, text) {
       host,
       domain: registrableDomain(host),
       isIp: /^[\d.]+$/.test(host) || host.includes(":"),
+      // On shared hosting (storage.googleapis.com, *.github.io, *.web.app ...)
+      // anyone can publish a page, so a trusted parent domain proves nothing.
+      sharedHosting: !(/^[\d.]+$/.test(host) || host.includes(":")) && registrableDomain(host) !== lookupDomain(host),
       texts: [],
       textMismatch: false,
       sources: [],
@@ -221,6 +248,10 @@ export async function analyseRawMessage(bytes, meta = {}) {
     linkTextMismatches: urls.filter((u) => u.textMismatch).length,
     ipLinks: urls.filter((u) => u.isIp).length,
     riskyAttachments: attachments.filter((a) => a.flags.length).length,
+    noDmarc: Boolean(auth.trustedSource && (!auth.dmarc || auth.dmarc.result === "none")),
+    sharedHostingLinks: urls.filter((u) => u.sharedHosting).length,
+    heloMismatch: Boolean(senderIp.heloMismatch),
+    forgedGoogleHops: senderIp.forgedGoogleHops.length,
   };
 
   const domains = new Set(
