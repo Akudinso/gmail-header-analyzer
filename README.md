@@ -4,7 +4,7 @@ A Chrome extension that analyses the email you open in Gmail, automatically. Ope
 
 Built as a learning project inspired by the email header analysis module of TCM Security's SOC 101 course.
 
-> **Status: early development.** Header and body analysis work today. IP/domain reputation lookups, a risk score and an AI summary are next (see [Roadmap](#roadmap)).
+> **Status: early development.** Header analysis and reputation lookups work today. A risk score and an AI summary are next (see [Roadmap](#roadmap)).
 
 ## What it does today
 
@@ -19,6 +19,7 @@ When you open an email in Gmail, the extension fetches the complete original mes
 | **Links** | Every link, its real destination, and whether the visible text points somewhere else (e.g. text says `paypal.com`, link goes to `paypa1-secure.net`) |
 | **Attachments** | File name, type, size, risky-extension flags and SHA-256 hash (for VirusTotal lookups) |
 | **Raw headers** | All headers, unfolded and decoded |
+| **Reputation lookups** *(optional, [needs the Worker](#6-turn-on-lookups-optional))* | Sender IP: AbuseIPDB score and reports, owner, ASN, network, reverse DNS, VirusTotal detections. Every domain involved: **registration date and age**, registrar, VirusTotal detections. Suspicious links and attachment hashes checked against VirusTotal. |
 
 ### Why some IPs are "verified" and others aren't
 
@@ -32,13 +33,15 @@ Gmail tab ─► content.js ─► background.js ──────────�
             message's ID)      email via Gmail API,         email data is shown
                                parses, caches in memory)    as text only)
                                        │
-                                       └─► Cloudflare Worker  (roadmap: lookups, score, AI;
-                                                               holds the API keys)
+                                       └─► Cloudflare Worker ─► AbuseIPDB, VirusTotal,
+                                           (holds API keys,       RDAP, reverse DNS
+                                            caches results)
 ```
 
 - **Read-only access.** The only Google permission requested is `gmail.readonly`.
 - **Nothing written to disk.** Reports live in `chrome.storage.session`, which is cleared when Chrome closes.
-- **Email content never leaves your browser** in the current version. When lookups arrive, only indicators (IPs, domains, URLs, file hashes) will be sent to reputation services.
+- **Email content never leaves your browser.** Only indicators go to the Worker: IP addresses, domain names, attachment hashes, and full URLs **only for links that already look suspicious** (link text that lies, or links to bare IPs). Ordinary links often contain personal tokens, such as password resets or unsubscribe IDs, so for those only the domain is checked.
+- **Your Gmail token stays with Google.** The Worker authenticates the extension with its own random key, so it never receives anything that can read your mail.
 - **"Disconnect Gmail"** at the bottom of the panel revokes the token and clears all stored reports.
 
 ## Run it yourself
@@ -168,23 +171,93 @@ This writes `extension/manifest.json` (gitignored) with your client ID and key.
 
 After changing code, click **Reload** on the extension card at `chrome://extensions`, then refresh the Gmail tab.
 
+### 6. Turn on lookups (optional)
+
+Steps 1–5 give you the full header analysis. Lookups add IP reputation, domain age and VirusTotal results. They run through a small Cloudflare Worker that keeps your API keys off the extension. Anyone could unzip an extension and read keys stored inside it.
+
+`npm run setup` has already created `worker/.dev.vars` with a random `WORKER_KEY` and your extension ID. You only add the API keys.
+
+#### 6a. Get two free API keys
+
+| Service | Sign up | Where the key is | Free limit |
+|---|---|---|---|
+| VirusTotal | [virustotal.com/gui/join-us](https://www.virustotal.com/gui/join-us) | Your profile picture (top right) → **API key** | 4 lookups a minute, 500 a day |
+| AbuseIPDB | [abuseipdb.com/register](https://www.abuseipdb.com/register) | **Account** → **API** → **Create Key** | 1,000 checks a day |
+
+Open `worker/.dev.vars` in a text editor and paste them in:
+
+```
+VT_API_KEY=paste-virustotal-key
+ABUSEIPDB_API_KEY=paste-abuseipdb-key
+```
+
+You can skip either one. Domain age (RDAP) and reverse DNS need no key and work regardless.
+
+#### 6b. Run the Worker on your computer
+
+```bash
+npm run worker:dev
+```
+
+Leave that terminal open while you use Gmail. The extension already points at `http://localhost:8787`, so open an email and the **Reputation lookups** section fills in.
+
+#### 6c. Or deploy it, so it's always on (free)
+
+Running locally means the terminal must stay open. Deploying puts the Worker on Cloudflare's free tier instead.
+
+1. Create a free account at [dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up).
+2. Sign in from the terminal (a browser window opens to approve):
+   ```bash
+   npx wrangler login
+   ```
+3. Deploy. The first time, Wrangler may ask you to pick a `workers.dev` subdomain.
+   ```bash
+   npm run worker:deploy
+   ```
+   Note the URL it prints, e.g. `https://gmail-header-analyzer.yourname.workers.dev`.
+4. Copy each setting from `worker/.dev.vars` to Cloudflare. Run each command, then paste the **value** from `.dev.vars` when asked:
+   ```bash
+   npx wrangler secret put WORKER_KEY --config worker/wrangler.toml
+   npx wrangler secret put ALLOWED_ORIGINS --config worker/wrangler.toml
+   npx wrangler secret put VT_API_KEY --config worker/wrangler.toml
+   npx wrangler secret put ABUSEIPDB_API_KEY --config worker/wrangler.toml
+   ```
+5. Point the extension at it, then click **Reload** at `chrome://extensions`:
+   ```bash
+   npm run setup -- --worker-url=https://gmail-header-analyzer.yourname.workers.dev
+   ```
+
+To check it, open `https://<your worker URL>/health` in a browser. Every setting you added should show `true`.
+
+#### How the free VirusTotal limit is handled
+
+One email can contain more indicators than VirusTotal's 4-per-minute allowance. Each email therefore gets up to 4 fresh VirusTotal lookups, spent in this order:
+1. Sender IP
+2. From domain
+3. Attachments
+4. Suspicious links
+5. Other domains
+
+Anything left over shows as *skipped*. Results are cached for 6 hours, and cached answers don't count against the 4, so pressing **Re-analyse** a minute later fills in the rest. Change the allowance with `VT_MAX_LOOKUPS` in `worker/wrangler.toml` if you have a paid key.
+
 ## Development
 
 ```bash
-npm test          # parser, service worker and Worker tests (Node built-ins only)
+npm test            # parser, service worker and Worker tests (Node built-ins only; upstream APIs are faked)
 npm run worker:dev  # run the Cloudflare Worker locally on http://localhost:8787
 ```
-
-For the Worker, copy `worker/.dev.vars.example` to `worker/.dev.vars` and set `ALLOWED_ORIGINS=chrome-extension://<your extension ID>`.
 
 ```
 extension/
   manifest.template.json   committed template; `npm run setup` fills in your key and client ID
   content.js               detects the open email in Gmail
-  background.js            sign-in, Gmail API fetch, caching
-  lib/                     parser (pure JS, runs in the browser and in Node tests)
+  background.js            sign-in, Gmail API fetch, caching, calls the Worker
+  lib/                     parser and lookup-request builder (pure JS, runs in the browser and in Node tests)
   sidepanel/               report UI
-worker/                    Cloudflare Worker (API keys, lookups — in progress)
+worker/
+  src/index.js             auth, input validation, VirusTotal budget
+  src/lookups.js           AbuseIPDB, VirusTotal, RDAP, reverse DNS
+  src/cache.js             KV cache if bound, in-memory otherwise
 scripts/setup-extension.mjs
 test/                      node:test suites and sample .eml fixtures
 ```
@@ -199,12 +272,16 @@ test/                      node:test suites and sample .eml fixtures
 | "couldn't find this message ID" (404) | Gmail may have changed its page markup. Please [open an issue](../../issues) with your Chrome version. |
 | Asked to connect again after about a week | Normal for apps in Testing mode: Google expires their sign-in after 7 days. Click **Connect Gmail** again. |
 | Panel says "Open Gmail in this tab" while Gmail is open | Refresh the Gmail tab (needed once after installing or reloading the extension). |
+| Lookups: "Couldn't reach the Worker" | Start it with `npm run worker:dev`, or check the deployed URL with `/health`. |
+| Lookups: "rejected the extension's key" or "doesn't allow this extension's ID" | The Worker's `WORKER_KEY` / `ALLOWED_ORIGINS` don't match the extension. Re-run `npm run setup`, restart `npm run worker:dev`, or re-copy the secrets for a deployed Worker (6c step 4). |
+| Lookups: "No API key on the Worker" | Add the key to `worker/.dev.vars` and restart the Worker (or `wrangler secret put` it if deployed). |
+| Domain shows "No RDAP record" | Some country registries don't publish registration data over RDAP. The domain's VirusTotal result may still include a creation date. |
 
 ## Roadmap
 
 - [x] Step 1 — Sign in, fetch the raw email via Gmail API, parse it
 - [x] Step 2 — Extract indicators and show them in the side panel
-- [ ] Step 3 — Worker lookups: AbuseIPDB, VirusTotal, RDAP (owner, ASN, **domain age**), with caching
+- [x] Step 3 — Worker lookups: AbuseIPDB, VirusTotal, RDAP (owner, **domain age**), reverse DNS, with caching
 - [ ] Step 4 — Explainable rule-based risk score (every point traceable to a finding)
 - [ ] Step 5 — AI summary that explains the evidence but can never lower the score (email text is attacker-controlled, so prompt injection is assumed)
 
@@ -212,6 +289,7 @@ test/                      node:test suites and sample .eml fixtures
 
 - **Gmail and Workspace senders:** when the email was sent through Google's own servers, the original sender's IP is hidden by design. The panel says so.
 - **Domain comparison is approximate:** "same organisation" checks use a built-in list of multi-part suffixes such as `co.uk` and `com.ng`. A full Public Suffix List is planned.
+- **VirusTotal "not found" isn't "safe":** an attachment VirusTotal has never seen is simply unknown. Files are never uploaded, by design.
 - **Gmail markup can change:** the extension reads one attribute from Gmail's page to find the message ID. Everything else comes from the API.
 
 ## Contributing
