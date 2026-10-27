@@ -1,3 +1,5 @@
+import { organisationalDomain, registeredDomain } from "./psl.js";
+
 // IP and domain helpers.
 
 const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
@@ -62,29 +64,26 @@ export function extractIps(text) {
   return [...new Set(found)];
 }
 
-// Multi-label public suffixes common in this project's audience. A full
-// Public Suffix List lookup is planned; this heuristic is labelled
-// "approximate" wherever its result is shown.
-const MULTI_LABEL_SUFFIXES = new Set([
-  "co.uk", "org.uk", "ac.uk", "gov.uk", "ltd.uk", "plc.uk", "me.uk", "net.uk", "nhs.uk", "sch.uk",
-  "com.ng", "org.ng", "gov.ng", "edu.ng", "net.ng", "ng.com",
-  "com.au", "net.au", "org.au", "edu.au", "gov.au",
-  "co.nz", "co.za", "co.in", "co.jp", "co.kr", "com.br", "com.mx", "com.cn", "com.tr",
-  "com.sg", "com.hk", "com.my", "com.ph", "com.pk", "com.eg", "co.ke", "co.tz", "co.ug", "com.gh",
-]);
-
 export function normaliseHost(host) {
   return String(host || "").trim().toLowerCase().replace(/\.$/, "");
 }
 
-/** Approximate "organisational" domain: mail.paypal.co.uk -> paypal.co.uk */
+/**
+ * Who controls a host, using the full Public Suffix List (private suffixes
+ * like github.io count, so evil.github.io and good.github.io differ).
+ * IP literals are returned as-is.
+ */
 export function registrableDomain(host) {
   const h = normaliseHost(host);
   if (!h || isIPv4(h) || h.includes(":")) return h || null;
-  const labels = h.split(".");
-  if (labels.length <= 2) return h;
-  const lastTwo = labels.slice(-2).join(".");
-  return MULTI_LABEL_SUFFIXES.has(lastTwo) ? labels.slice(-3).join(".") : lastTwo;
+  return organisationalDomain(h) ?? h;
+}
+
+/** The domain registered at a registry — what RDAP, WHOIS and VirusTotal describe. */
+export function lookupDomain(host) {
+  const h = normaliseHost(host);
+  if (!h || isIPv4(h) || h.includes(":")) return null;
+  return registeredDomain(h);
 }
 
 export function sameOrg(a, b) {

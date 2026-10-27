@@ -146,6 +146,9 @@ function lookupFindings(x) {
   if (abuse?.isTor) out.push("Sender IP is a Tor exit node.");
   if (vtBad(x.ip?.virustotal)) out.push(`${vtBad(x.ip.virustotal)} VirusTotal engine(s) flag the sender IP.`);
   for (const d of x.domains ?? []) {
+    const dns = ok(d.dns) ? d.dns.data : null;
+    if (dns && !dns.tldExists) out.push(`${d.domain} (${d.roles.join(", ")}) uses ".${d.domain.split(".").pop()}", which isn't a real top-level domain, so this address is fake.`);
+    else if (dns && !dns.domainExists) out.push(`${d.domain} (${d.roles.join(", ")}) doesn't exist in DNS.`);
     const age = ok(d.rdap) ? d.rdap.data.ageDays : null;
     if (age != null && age < NEW_DOMAIN_DAYS) out.push(`${d.domain} (${d.roles.join(", ")}) was registered only ${age} day(s) ago.`);
     if (vtBad(d.virustotal)) out.push(`${vtBad(d.virustotal)} VirusTotal engine(s) flag ${d.domain}.`);
@@ -160,6 +163,9 @@ const STATUS_TEXT = {
   skipped: "VirusTotal skipped (free-tier budget)",
   rate_limited: "Rate limited; try Re-analyse in a minute",
   not_configured: "No API key on the Worker",
+  invalid: "VirusTotal says this isn't valid",
+  unsupported: "Registry doesn't publish RDAP data",
+  not_applicable: "Not looked up",
 };
 
 function statusLine(res) {
@@ -209,10 +215,18 @@ function renderLookups(enrichment) {
       el("dl", { class: "kv" },
         row("Owner", rd?.organisation ?? vt?.asOwner ?? a?.isp ?? "—"),
         vt?.asn ? row("ASN", `AS${vt.asn}${vt.asOwner ? ` · ${vt.asOwner}` : ""}`) : null,
-        row("Network", rd ? `${rd.name ?? ""} ${rd.range ? `(${rd.range})` : ""}`.trim() || "—" : "—"),
+        row("Network", rd ? `${rd.name ?? ""} ${rd.range ? `(${rd.range})` : ""}`.trim() || "—" : statusLine(x.ip.rdap) ?? "—"),
         row("Country", a?.country ?? vt?.country ?? rd?.country ?? "—"),
         a?.usageType ? row("Usage", a.usageType) : null,
-        row("Reverse DNS", ptr ? ptr.join(", ") : x.ip.reverseDns?.status === "not_found" ? "None (no PTR record)" : "—"),
+        row(
+          "Reverse DNS",
+          ptr ? ptr.join(", ") : x.ip.reverseDns?.status === "not_found" ? "None (no PTR record)" : "—",
+          ptr && !x.ip.reverseDns.data.forwardConfirmed
+            ? el("div", { class: "muted", text: "Unconfirmed: this name doesn't resolve back to the IP, so whoever runs the IP may have set it to anything." })
+            : ptr
+              ? el("div", { class: "muted", text: "Confirmed: the name resolves back to this IP." })
+              : null
+        ),
         a ? row("Reports", `${a.totalReports} from ${a.distinctReporters} source(s)${a.lastReportedAt ? `, last ${a.lastReportedAt.slice(0, 10)}` : ""}`) : row("AbuseIPDB", statusLine(x.ip.abuseipdb)),
         !vt ? row("VirusTotal", statusLine(x.ip.virustotal)) : null
       )
@@ -238,17 +252,27 @@ function renderLookups(enrichment) {
       el("ul", { class: "list" },
         x.domains.map((d) => {
           const rd = ok(d.rdap) ? d.rdap.data : null;
+          const dns = ok(d.dns) ? d.dns.data : null;
           const isNew = rd?.ageDays != null && rd.ageDays < NEW_DOMAIN_DAYS;
           return el("li", {},
             el("div", { class: "chips", style: "margin-bottom:4px" },
               el("strong", { class: "mono", text: d.domain }),
               d.roles.map((role) => el("span", { class: "chip", text: role })),
               isNew ? el("span", { class: "chip fail", text: `${rd.ageDays}d old` }) : null,
+              dns && !dns.tldExists ? el("span", { class: "chip fail", text: "fake TLD" }) : null,
+              dns && dns.tldExists && !dns.domainExists ? el("span", { class: "chip fail", text: "doesn't exist" }) : null,
+              dns && dns.domainExists && !dns.hasMx && !dns.hasAddress ? el("span", { class: "chip warn", text: "can't receive mail" }) : null,
               vtChip(d.virustotal)
             ),
             el("div", { class: "muted" },
-              rd ? `Registered ${rd.createdAt ? rd.createdAt.slice(0, 10) : "date unknown"}${rd.registrar ? ` via ${rd.registrar}` : ""}` : d.rdap?.status === "not_found" ? "No RDAP record (registry may not publish one)" : `Registration: ${d.rdap?.error ?? d.rdap?.status ?? "—"}`,
-              !ok(d.virustotal) && d.virustotal?.status !== "not_configured" ? [" · ", statusLine(d.virustotal)] : null
+              dns && !dns.tldExists
+                ? `.${d.domain.split(".").pop()} is not a real top-level domain`
+                : rd
+                  ? `Registered ${rd.createdAt ? rd.createdAt.slice(0, 10) : "date unknown"}${rd.registrar ? ` via ${rd.registrar}` : ""}`
+                  : d.rdap?.status === "not_found"
+                    ? "Registry has no record of this domain"
+                    : ["Registration: ", statusLine(d.rdap)],
+              !ok(d.virustotal) && !["not_configured", "not_applicable"].includes(d.virustotal?.status) ? [" · ", statusLine(d.virustotal)] : null
             )
           );
         })

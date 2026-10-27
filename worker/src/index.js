@@ -13,7 +13,7 @@
 // the caller is you, not to read your mail.
 
 import { createCache } from "./cache.js";
-import { abuseipdb, rdapDomain, rdapIp, reverseDns, virustotal } from "./lookups.js";
+import { abuseipdb, domainDns, rdapDomain, rdapIp, reverseDns, virustotal } from "./lookups.js";
 import { isIPv4, isIPv6, isNonPublicIp } from "../../extension/lib/netutil.js";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
@@ -118,7 +118,11 @@ export async function enrich(req, env) {
   const vtKey = (kind, value) => `${kind}:${value}`;
   // Cached VirusTotal answers are free, so serve those first and spend the
   // budget only on indicators VirusTotal hasn't been asked about recently.
-  const all = env.VT_API_KEY ? planVirusTotal(req, Infinity).run : [];
+  // DNS first (free and fast): a domain on a TLD that doesn't exist is fake,
+  // so it isn't worth a VirusTotal lookup or an RDAP query.
+  const dns = new Map(await Promise.all(req.domains.map(async (d) => [d.domain, await domainDns(d.domain, cache)])));
+  const fakeTld = (domain) => dns.get(domain)?.data?.tldExists === false;
+  const all = env.VT_API_KEY ? planVirusTotal(req, Infinity).run.filter((t) => !(t.kind === "domain" && fakeTld(t.value))) : [];
   const uncached = [];
   for (const t of all) {
     const hit = env.VT_API_KEY ? await cache.get(`vt:${t.kind}:${t.value}`) : null;
@@ -140,7 +144,13 @@ export async function enrich(req, env) {
         }))
       : null,
     Promise.all(req.claimedIps.map(async (value) => ({ value, abuseipdb: await abuseipdb(value, env, cache) }))),
-    Promise.all(req.domains.map(async (d) => ({ ...d, rdap: await rdapDomain(d.domain, cache), virustotal: vt("domain", d.domain) }))),
+    Promise.all(
+      req.domains.map(async (d) =>
+        fakeTld(d.domain)
+          ? { ...d, dns: dns.get(d.domain), rdap: { status: "not_applicable" }, virustotal: { status: "not_applicable" } }
+          : { ...d, dns: dns.get(d.domain), rdap: await rdapDomain(d.domain, cache), virustotal: vt("domain", d.domain) }
+      )
+    ),
   ]);
 
   return {

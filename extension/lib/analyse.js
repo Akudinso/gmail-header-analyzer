@@ -10,7 +10,7 @@ import {
   parseReceived,
   parseReceivedSpf,
 } from "./headers.js";
-import { isNonPublicIp, normaliseHost, registrableDomain, sameOrg } from "./netutil.js";
+import { isNonPublicIp, lookupDomain, normaliseHost, registrableDomain, sameOrg } from "./netutil.js";
 
 // The receiving server we trust. Gmail adds these headers itself; anything
 // the sender wrote further down the message could be forged.
@@ -226,7 +226,8 @@ export async function analyseRawMessage(bytes, meta = {}) {
   const domains = new Set(
     [from?.domain, replyTo?.domain, sender?.domain, returnPath?.domain, auth.dkim?.domain, ...urls.map((u) => u.domain)]
       .filter(Boolean)
-      .map((d) => registrableDomain(d))
+      .map((d) => lookupDomain(d))
+      .filter(Boolean)
   );
   const ips = new Set([senderIp.verified?.ip, ...senderIp.claimed.map((c) => c.ip)].filter(Boolean));
 

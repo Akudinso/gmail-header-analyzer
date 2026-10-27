@@ -23,15 +23,32 @@ function fakeUpstream(url, init) {
     if (u.pathname.startsWith("/api/v3/ip_addresses/")) return json({ data: { attributes: { last_analysis_stats: { malicious: 3, suspicious: 1, harmless: 60, undetected: 20 }, asn: 63949, as_owner: "Akamai Connected Cloud", country: "US" } } });
     return json({ data: { attributes: { last_analysis_stats: { malicious: 5, suspicious: 0, harmless: 50, undetected: 30 }, creation_date: 1792800000 } } });
   }
-  if (u.host === "rdap.org") {
-    if (u.pathname.startsWith("/ip/")) return json({ name: "LINODE-US", handle: "NET-45-33-0-0-1", country: "US", cidr0_cidrs: [{ v4prefix: "45.33.0.0", length: 17 }], entities: [{ roles: ["registrant"], vcardArray: ["vcard", [["fn", {}, "text", "Akamai Technologies, Inc."]]] }] });
+  if (u.host === "data.iana.org") {
+    if (u.pathname === "/rdap/dns.json") return json({ services: [[["com", "net"], ["https://rdap.verisign.com/com/v1/"]], [["uk"], ["https://rdap.nominet.uk/uk/"]]] });
+    if (u.pathname === "/rdap/ipv4.json") return json({ services: [[["45.0.0.0/8"], ["https://rdap.arin.net/registry/"]], [["5.0.0.0/8", "185.0.0.0/8"], ["https://rdap.db.ripe.net/"]]] });
+    return json({ services: [] });
+  }
+  if (u.host === "rdap.arin.net") {
+    assert.equal(u.pathname, "/registry/ip/45.33.32.156");
+    return json({ name: "LINODE-US", handle: "NET-45-33-0-0-1", country: "US", cidr0_cidrs: [{ v4prefix: "45.33.0.0", length: 17 }], entities: [{ roles: ["registrant"], vcardArray: ["vcard", [["fn", {}, "text", "Akamai Technologies, Inc."]]] }] });
+  }
+  if (u.host === "rdap.verisign.com") {
     return json({
       events: [{ eventAction: "registration", eventDate: "2026-10-20T00:00:00Z" }, { eventAction: "expiration", eventDate: "2027-10-20T00:00:00Z" }],
       entities: [{ roles: ["registrar"], vcardArray: ["vcard", [["version", {}, "text", "4.0"], ["fn", {}, "text", "NameCheap, Inc."]]] }],
       status: ["client transfer prohibited"],
     });
   }
-  if (u.host === "cloudflare-dns.com") return json({ Status: 0, Answer: [{ name: "x", type: 12, data: "li982-156.members.linode.com." }] });
+  if (u.host === "cloudflare-dns.com") {
+    const name = u.searchParams.get("name");
+    const type = u.searchParams.get("type");
+    if (type === "PTR") return json({ Status: 0, Answer: [{ name, type: 12, data: "li982-156.members.linode.com." }] });
+    if (type === "NS") return json({ Status: name === "ikz." ? 3 : 0, Answer: [] });
+    if (name === "li982-156.members.linode.com" && type === "A") return json({ Status: 0, Answer: [{ name, type: 1, data: "45.33.32.156" }] });
+    if (name === "never-registered.com") return json({ Status: 3 });
+    if (type === "MX") return json({ Status: 0, Answer: [{ name, type: 15, data: "10 mx.example." }] });
+    return json({ Status: 0, Answer: [{ name, type: 1, data: "203.0.113.5" }] });
+  }
   throw new Error(`unexpected upstream ${u.host}`);
 }
 
@@ -141,6 +158,7 @@ test("enrich combines all sources", async () => {
   assert.equal(r.ip.rdap.data.range, "45.33.0.0/17");
   assert.equal(r.ip.rdap.data.organisation, "Akamai Technologies, Inc.");
   assert.deepEqual(r.ip.reverseDns.data.names, ["li982-156.members.linode.com"]);
+  assert.equal(r.ip.reverseDns.data.forwardConfirmed, true);
 
   assert.deepEqual(r.claimedIps.map((c) => c.value), ["185.199.108.153"], "private claimed IP dropped");
 
@@ -149,6 +167,7 @@ test("enrich combines all sources", async () => {
   assert.equal(reply.rdap.data.createdAt, "2026-10-20T00:00:00Z");
   assert.equal(typeof reply.rdap.data.ageDays, "number");
   assert.equal(reply.virustotal.status, "skipped", "over the VirusTotal budget");
+  assert.deepEqual(reply.dns.data, { tldExists: true, domainExists: true, hasMx: true, hasAddress: true });
 
   assert.equal(r.urls[0].virustotal.data.malicious, 5);
   assert.equal(r.hashes[0].virustotal.status, "not_found");
@@ -196,6 +215,55 @@ test("upstream rate limits and outages are reported, not thrown", async () => {
   const r = await (await worker.fetch(enrichRequest(sample), baseEnv)).json();
   assert.equal(r.ip.virustotal.status, "rate_limited");
   assert.equal(r.ip.abuseipdb.status, "error");
+});
+
+test("fake TLDs and unregistered domains are detected, and don't use VirusTotal budget", async () => {
+  const body = { domains: [{ domain: "adewo.ikz", roles: ["from"] }, { domain: "never-registered.com", roles: ["reply-to"] }] };
+  const r = await (await worker.fetch(enrichRequest(body), baseEnv)).json();
+  const fake = r.domains.find((d) => d.domain === "adewo.ikz");
+  assert.equal(fake.dns.data.tldExists, false);
+  assert.equal(fake.rdap.status, "not_applicable");
+  assert.equal(fake.virustotal.status, "not_applicable");
+  const gone = r.domains.find((d) => d.domain === "never-registered.com");
+  assert.equal(gone.dns.data.tldExists, true);
+  assert.equal(gone.dns.data.domainExists, false);
+  assert.ok(!calls.some((c) => c.host === "www.virustotal.com" && c.path.includes("adewo.ikz")));
+  assert.ok(!calls.some((c) => c.host === "rdap.org"), "registries are asked directly via the IANA bootstrap");
+});
+
+test("PTR names that don't resolve back to the IP are marked unconfirmed", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const u = new URL(url);
+    if (u.host === "cloudflare-dns.com" && u.searchParams.get("type") === "PTR") {
+      return json({ Status: 0, Answer: [{ type: 12, data: "unbuildingbuilding.princeton.edu." }] });
+    }
+    return realFetch(url, init);
+  };
+  const r = await (await worker.fetch(enrichRequest({ ip: "45.33.32.156" }), baseEnv)).json();
+  assert.deepEqual(r.ip.reverseDns.data, { names: ["unbuildingbuilding.princeton.edu"], forwardConfirmed: false });
+});
+
+test("keyless sources never report 'API key rejected', and VirusTotal 400 means invalid", async () => {
+  globalThis.fetch = async (url, init) => {
+    const u = new URL(url);
+    if (u.host === "rdap.verisign.com") return json({}, 403);
+    if (u.host === "www.virustotal.com") return json({ error: { code: "InvalidArgumentError" } }, 400);
+    return fakeUpstream(url, init);
+  };
+  const r = await (await worker.fetch(enrichRequest({ domains: [{ domain: "example.com", roles: ["from"] }] }), baseEnv)).json();
+  assert.deepEqual(r.domains[0].rdap, { status: "error", error: "HTTP 403", cached: false });
+  assert.equal(r.domains[0].virustotal.status, "invalid");
+});
+
+test("RDAP bootstrap picks the most specific registry", async () => {
+  const { rdapServerForDomain, rdapServerForIp } = await import("../worker/src/lookups.js");
+  const services = [[["10.0.0.0/8"], ["https://a/"]], [["10.1.0.0/16"], ["http://b/", "https://b/"]]];
+  assert.equal(rdapServerForIp(services, "10.1.2.3"), "https://b/");
+  assert.equal(rdapServerForIp(services, "10.2.2.3"), "https://a/");
+  assert.equal(rdapServerForIp(services, "11.0.0.1"), null);
+  assert.equal(rdapServerForDomain([[["uk"], ["https://rdap.nominet.uk/uk/"]]], "bcu.ac.uk"), "https://rdap.nominet.uk/uk/");
+  assert.equal(rdapServerForDomain([[["uk"], ["https://x/"]]], "adewo.ikz"), null);
 });
 
 // ---------- helpers ----------

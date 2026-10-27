@@ -5,14 +5,14 @@
 // ordinary links (password resets, unsubscribe links, shared docs) often
 // contain personal tokens. Every link's *domain* is still checked.
 
-import { registrableDomain } from "./netutil.js";
+import { lookupDomain } from "./netutil.js";
 
 const MAX = { domains: 10, urls: 5, hashes: 5, claimedIps: 3 };
 
 export function buildEnrichRequest(report) {
   const roles = new Map();
   const addRole = (domain, role) => {
-    const d = registrableDomain(domain);
+    const d = lookupDomain(domain);
     if (!d) return;
     if (!roles.has(d)) roles.set(d, new Set());
     roles.get(d).add(role);

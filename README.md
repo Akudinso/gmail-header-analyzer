@@ -19,7 +19,7 @@ When you open an email in Gmail, the extension fetches the complete original mes
 | **Links** | Every link, its real destination, and whether the visible text points somewhere else (e.g. text says `paypal.com`, link goes to `paypa1-secure.net`) |
 | **Attachments** | File name, type, size, risky-extension flags and SHA-256 hash (for VirusTotal lookups) |
 | **Raw headers** | All headers, unfolded and decoded |
-| **Reputation lookups** *(optional, [needs the Worker](#6-turn-on-lookups-optional))* | Sender IP: AbuseIPDB score and reports, owner, ASN, network, reverse DNS, VirusTotal detections. Every domain involved: **registration date and age**, registrar, VirusTotal detections. Suspicious links and attachment hashes checked against VirusTotal. |
+| **Reputation lookups** *(optional, [needs the Worker](#6-turn-on-lookups-optional))* | Sender IP: AbuseIPDB score and reports, owner, ASN, network, reverse DNS, VirusTotal detections. Every domain involved: whether it **exists at all** (catches made-up TLDs like `.ikz`), **registration date and age**, registrar, VirusTotal detections. Reverse DNS is checked in both directions, so a PTR name the IP's owner simply made up is labelled unconfirmed. Suspicious links and attachment hashes checked against VirusTotal. |
 
 ### Why some IPs are "verified" and others aren't
 
@@ -272,7 +272,7 @@ extension/
   sidepanel/               report UI
 worker/
   src/index.js             auth, input validation, VirusTotal budget
-  src/lookups.js           AbuseIPDB, VirusTotal, RDAP, reverse DNS
+  src/lookups.js           AbuseIPDB, VirusTotal, RDAP (via IANA bootstrap), DNS checks, reverse DNS
   src/cache.js             KV cache if bound, in-memory otherwise
 scripts/setup-extension.mjs
 test/                      node:test suites and sample .eml fixtures
@@ -291,7 +291,7 @@ test/                      node:test suites and sample .eml fixtures
 | Lookups: "Couldn't reach the Worker" | Start it with `npm run worker:dev`, or check the deployed URL with `/health`. |
 | Lookups: "rejected the extension's key" or "doesn't allow this extension's ID" | The Worker's `WORKER_KEY` / `ALLOWED_ORIGINS` don't match the extension. Re-run `npm run setup`, restart `npm run worker:dev`, or re-copy the secrets for a deployed Worker (6c step 4). |
 | Lookups: "No API key on the Worker" | Add the key to `worker/.dev.vars` and restart the Worker (or `wrangler secret put` it if deployed). |
-| Domain shows "No RDAP record" | Some country registries don't publish registration data over RDAP. The domain's VirusTotal result may still include a creation date. |
+| Domain shows "Registry doesn't publish RDAP data" | Some country-code registries (for example `.id`) don't offer RDAP, so the registration date isn't available. That's a gap in public data, not a problem with the email. |
 
 ## Roadmap
 
@@ -304,7 +304,7 @@ test/                      node:test suites and sample .eml fixtures
 ## Known limitations
 
 - **Gmail and Workspace senders:** when the email was sent through Google's own servers, the original sender's IP is hidden by design. The panel says so.
-- **Domain comparison is approximate:** "same organisation" checks use a built-in list of multi-part suffixes such as `co.uk` and `com.ng`. A full Public Suffix List is planned.
+- **Domain comparison uses the Public Suffix List**, bundled in `extension/lib/psl-data.js`. Refresh it occasionally with `npm run update-psl`.
 - **VirusTotal "not found" isn't "safe":** an attachment VirusTotal has never seen is simply unknown. Files are never uploaded, by design.
 - **Gmail markup can change:** the extension reads one attribute from Gmail's page to find the message ID. Everything else comes from the API.
 
@@ -315,3 +315,5 @@ Forks and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). To 
 ## Licence
 
 [MIT](LICENSE)
+
+`extension/lib/psl-data.js` is generated from the [Public Suffix List](https://publicsuffix.org/), which is licensed under [MPL-2.0](https://mozilla.org/MPL/2.0/).
