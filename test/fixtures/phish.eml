@@ -1,0 +1,61 @@
+Delivered-To: victim@gmail.com
+Received: by 2002:a05:6400:5b8a:b0:2b1:7c3e:9f10 with SMTP id k10csp1234567;
+        Tue, 27 Oct 2026 02:15:10 -0700 (PDT)
+X-Received: by 2002:a17:906:c10e:b0:9a1:aa00:1234 with SMTP id k14mr9876543;
+        Tue, 27 Oct 2026 02:15:09 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1793178909; cv=none; d=google.com; s=arc-20240605; b=AAAA
+Return-Path: <bounce@bulk-mailer.example.org>
+Received: from mail.paypa1-secure.net (mail.paypa1-secure.net. [45.33.32.156])
+        by mx.google.com with ESMTPS id a1si123456.2026.10.27.02.15.08
+        for <victim@gmail.com>
+        (version=TLS1_3 cipher=TLS_AES_256_GCM_SHA384 bits=256/256);
+        Tue, 27 Oct 2026 02:15:08 -0700 (PDT)
+Received-SPF: softfail (google.com: domain of transitioning bounce@bulk-mailer.example.org does not designate 45.33.32.156 as permitted sender) client-ip=45.33.32.156;
+Authentication-Results: mx.google.com;
+       spf=softfail (google.com: domain of transitioning bounce@bulk-mailer.example.org does not designate 45.33.32.156 as permitted sender) smtp.mailfrom=bounce@bulk-mailer.example.org;
+       dmarc=fail (p=REJECT sp=REJECT dis=QUARANTINE) header.from=paypal.com
+Authentication-Results: evil-relay.example.org; dkim=pass header.d=paypal.com; spf=pass; dmarc=pass header.from=paypal.com
+Received: from [192.168.1.10] (unknown [192.168.1.10])
+        by mail.paypa1-secure.net (Postfix) with ESMTPSA id 4F2A1;
+        Tue, 27 Oct 2026 10:15:02 +0100 (BST)
+X-Originating-IP: [185.199.108.153]
+From: "PayPal Service" <service@paypal.com>
+Reply-To: PayPal Support <support@paypa1-help.net>
+To: victim@gmail.com
+Subject: =?UTF-8?B?QWN0aW9uIHJlcXVpcmVkOg==?= =?UTF-8?Q?_your_account_is_on_h=C3=B6ld?=
+Date: Tue, 27 Oct 2026 10:15:00 +0100
+Message-ID: <a1b2c3@mail.paypa1-secure.net>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="outer-boundary"
+
+--outer-boundary
+Content-Type: multipart/alternative; boundary="alt-boundary"
+
+--alt-boundary
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Dear customer, verify now: https://paypa1-secure.net/login?id=3D42.
+Thanks.
+
+--alt-boundary
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+<html><body><p>Dear customer,</p>
+<p><a href=3D"http://paypa1-secure.net/login?id=3D42&amp;r=3D1">https://www.p=
+aypal.com/signin</a></p>
+<p><a href=3D"http://198.51.100.7/track">Unsubscribe</a></p>
+<p><a href=3D"https://www.paypal.com/help">www.paypal.com</a></p>
+</body></html>
+
+--alt-boundary--
+
+--outer-boundary
+Content-Type: application/octet-stream; name="invoice.pdf.exe"
+Content-Disposition: attachment; filename="invoice.pdf.exe"
+Content-Transfer-Encoding: base64
+
+SGVsbG8sIHRoaXMgaXMgbm90IHJlYWxseSBtYWx3YXJlLg==
+
+--outer-boundary--

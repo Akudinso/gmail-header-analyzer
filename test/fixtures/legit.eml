@@ -1,0 +1,23 @@
+Delivered-To: kay@gmail.com
+Received: by 2002:a05:6400:5b8a:b0:2b1:7c3e:9f10 with SMTP id k10csp7654321;
+        Mon, 26 Oct 2026 08:00:05 -0700 (PDT)
+Return-Path: <noreply@news.bcu.ac.uk>
+Received: from mail-out.bcu.ac.uk (mail-out.bcu.ac.uk. [147.188.192.20])
+        by mx.google.com with ESMTPS id x9si44.2026.10.26.08.00.04
+        for <kay@gmail.com>;
+        Mon, 26 Oct 2026 08:00:04 -0700 (PDT)
+Received-SPF: pass (google.com: domain of noreply@news.bcu.ac.uk designates 147.188.192.20 as permitted sender) client-ip=147.188.192.20;
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@bcu.ac.uk header.s=sel1 header.b=AbCdEf;
+       spf=pass (google.com: domain of noreply@news.bcu.ac.uk designates 147.188.192.20 as permitted sender) smtp.mailfrom=noreply@news.bcu.ac.uk;
+       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=bcu.ac.uk
+From: =?UTF-8?Q?Caf=C3=A9_Team?= <news@bcu.ac.uk>
+To: kay@gmail.com
+Subject: =?UTF-8?B?V2Vla2x5IG5ld3Mg4pyT?=
+Date: Mon, 26 Oct 2026 15:00:00 +0000
+Message-ID: <weekly-42@news.bcu.ac.uk>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+Hello Kay, this week's library hours: https://www.bcu.ac.uk/library.
