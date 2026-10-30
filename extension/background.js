@@ -7,6 +7,7 @@
 import { base64ToBytes } from "./lib/encoding.js";
 import { analyseRawMessage } from "./lib/analyse.js";
 import { buildEnrichRequest, isEmptyRequest } from "./lib/enrich-request.js";
+import { assessReport } from "./lib/findings.js";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me/messages";
 const CACHE_LIMIT = 25;
@@ -80,6 +81,50 @@ async function setTabState(tabId, patch) {
 async function getTabState(tabId) {
   const key = tabKey(tabId);
   return (await chrome.storage.session.get(key))[key] ?? null;
+}
+
+// ---------- AI summary (opt-in) ----------
+//
+// Off until the user turns it on in the side panel, because it is the one
+// feature that sends email TEXT off the device (to Google Gemini, via the
+// Worker). Stored in chrome.storage.local so the choice survives restarts.
+
+async function aiEnabled() {
+  const { aiSummary = false } = await chrome.storage.local.get("aiSummary");
+  return aiSummary === true;
+}
+
+/** Ask the Worker for an AI explanation of the assessment. Never throws. */
+async function summariseReport(report) {
+  const { workerUrl, workerKey } = await loadConfig();
+  if (!workerUrl || !workerKey) return { status: "off" };
+  const assessment = assessReport(report);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ENRICH_TIMEOUT_MS);
+  try {
+    const res = await fetch(new URL("/v1/summarise", workerUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${workerKey}` },
+      signal: controller.signal,
+      body: JSON.stringify({
+        assessment: { score: assessment.score, level: assessment.level, findings: assessment.findings.map((f) => ({ text: f.text, awarded: f.awarded })) },
+        email: {
+          subject: report.summary.subject,
+          fromName: report.summary.from?.name ?? "",
+          fromDomain: report.summary.from?.domain ?? "",
+          body: report.body.preview,
+        },
+      }),
+    });
+    if (!res.ok) return { status: "error", error: `Worker error ${res.status}` };
+    const out = await res.json();
+    // Remember which score the summary explained, so a later re-score is visible.
+    return { ...out, forScore: assessment.score };
+  } catch (err) {
+    return { status: "error", error: err?.name === "AbortError" ? "The AI summary took too long." : "Couldn't reach the Worker for the AI summary." };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ---------- Auth ----------
@@ -187,6 +232,14 @@ async function analyse(tabId, messageId, { force = false } = {}) {
       if (stale()) return;
       await setTabState(tabId, { status: "ready", report });
     }
+    // The summary runs last so it can explain the final score, lookups included.
+    if (report.aiSummary?.status !== "ok" && (await aiEnabled())) {
+      report.aiSummary = { status: "loading" };
+      await setTabState(tabId, { status: "ready", report });
+      report.aiSummary = await summariseReport(report);
+      if (stale()) return;
+      await setTabState(tabId, { status: "ready", report });
+    }
     await cachePut(messageId, report);
   } catch (err) {
     if (stale()) return;
@@ -238,6 +291,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case "panel:refresh": {
         const state = await getTabState(msg.tabId);
         if (state?.selectedId) await analyse(msg.tabId, state.selectedId, { force: true });
+        return { ok: true };
+      }
+      case "panel:set-ai": {
+        await chrome.storage.local.set({ aiSummary: msg.enabled === true });
+        const state = await getTabState(msg.tabId);
+        if (msg.enabled === true && state?.selectedId) await analyse(msg.tabId, state.selectedId);
         return { ok: true };
       }
       case "panel:rescan":

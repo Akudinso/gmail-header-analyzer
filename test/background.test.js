@@ -29,6 +29,15 @@ globalThis.chrome = {
     clearAllCachedAuthTokens: async () => {},
   },
   storage: {
+    local: {
+      data: {},
+      async get(key) {
+        return key in this.data ? { [key]: this.data[key] } : {};
+      },
+      async set(obj) {
+        Object.assign(this.data, obj);
+      },
+    },
     session: {
       async get(keys) {
         const list = keys == null ? [...store.keys()] : Array.isArray(keys) ? keys : [keys];
@@ -48,6 +57,7 @@ globalThis.chrome = {
 };
 
 const workerCalls = [];
+const summaryCalls = [];
 const gmailFetch = async (url, opts) => {
   fetchCalls.push({ url: String(url), auth: opts?.headers?.Authorization });
   return new Response(JSON.stringify({ id: "18c5f2a9e4b1d3c7", raw: raw.toString("base64url") }), { status: 200 });
@@ -57,6 +67,10 @@ globalThis.fetch = async (url, opts) => {
   const u = String(url);
   if (u === "chrome-extension://ext-id/config.json") {
     return new Response(JSON.stringify({ workerUrl: "http://localhost:8787", workerKey: "k3y" }));
+  }
+  if (u === "http://localhost:8787/v1/summarise") {
+    summaryCalls.push(JSON.parse(opts.body));
+    return new Response(JSON.stringify({ status: "ok", data: { summary: "A fake PayPal warning.", keyPoints: [], aiAssessment: "consistent", aiConcern: "", injectionSuspected: false, model: "m" } }));
   }
   if (u === "http://localhost:8787/v1/enrich") {
     workerCalls.push({ auth: opts.headers.authorization, body: JSON.parse(opts.body) });
@@ -115,6 +129,26 @@ test("reopening the same email uses the cache", async () => {
 test("Re-analyse bypasses the cache", async () => {
   await send({ type: "panel:refresh", tabId: 7 }, { id: "ext-id" });
   assert.equal(fetchCalls.length, 2);
+});
+
+test("AI summary is off by default, and runs after lookups once turned on", async () => {
+  assert.equal(summaryCalls.length, 0, "never called before opt-in");
+  assert.equal(store.get("tab:7").report.aiSummary, undefined);
+  await send({ type: "panel:set-ai", tabId: 7, enabled: true }, { id: "ext-id" });
+  const r = store.get("tab:7").report;
+  assert.equal(r.aiSummary.status, "ok");
+  assert.equal(r.aiSummary.data.summary, "A fake PayPal warning.");
+  assert.equal(typeof r.aiSummary.forScore, "number");
+  const sent = summaryCalls[0];
+  assert.equal(sent.assessment.level, "high");
+  assert.ok(sent.assessment.findings.length > 0);
+  assert.ok(sent.email.body.includes("Dear customer"), "the summary is the one feature that sends body text");
+  assert.ok(!JSON.stringify(sent).includes("fake-token"));
+  // Reopening uses the cached summary.
+  await send({ type: "gmail:closed" });
+  await send({ type: "gmail:open", messageIds: ["18c5f2a9e4b1d3c7"] });
+  assert.equal(summaryCalls.length, 1);
+  await send({ type: "panel:set-ai", tabId: 7, enabled: false }, { id: "ext-id" });
 });
 
 test("messages from other extensions are ignored", async () => {

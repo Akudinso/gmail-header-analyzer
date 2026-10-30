@@ -191,3 +191,5 @@ h3.sub:first-of-type { margin-top: 0; }
   background: rgba(0, 0, 0, .12);
   white-space: nowrap;
 }
+
+.ai-points { margin: 0; padding-left: 18px; display: grid; gap: 4px; }

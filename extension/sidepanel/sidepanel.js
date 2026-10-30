@@ -11,6 +11,7 @@ const disconnectBtn = document.getElementById("disconnect");
 
 let tabId = null;
 let currentState = null;
+let aiOn = false;
 
 // ---------- tiny DOM helper ----------
 function el(tag, props = {}, ...children) {
@@ -152,6 +153,55 @@ function renderAssessment(assessment, enrichment) {
       )
     : null;
   return card("Risk", header, meter, breakdown, floorNote, note, list);
+}
+
+// ---------- AI summary ----------
+
+const AI_STATUS = {
+  off: "Lookups aren't set up, so the Worker that runs the AI isn't available. See README step 6.",
+  not_configured: "No Gemini key on the Worker. Add GEMINI_API_KEY to worker/.dev.vars and restart it (README step 7).",
+  rate_limited: "Gemini's free-tier limit was reached. Press Re-analyse in a minute.",
+};
+
+function aiToggle(enabled) {
+  return el("button", { class: enabled ? "link" : "primary", text: enabled ? "Turn off AI summary" : "Turn on AI summary", onclick: () => send("panel:set-ai", { enabled: !enabled }) });
+}
+
+function renderAiSummary(ai, assessment) {
+  if (!aiOn) {
+    return card("AI summary",
+      el("p", { class: "muted", style: "margin:0 0 10px", text: "Get a plain-English explanation of this email from Google Gemini. It can explain the score but never change it." }),
+      el("p", { style: "margin:0 0 10px" },
+        el("strong", { text: "Privacy: " }),
+        "this sends each email's subject and text (with link details and addresses removed) to Google. On Gemini's free tier, Google may use it to improve its products and human reviewers may read it; Google's terms say not to send personal information. With billing enabled on your Gemini key, Google doesn't use it for training. Everything else in this panel stays between you, your Worker and the lookup services."),
+      aiToggle(false));
+  }
+  if (!ai || ai.status === "loading") {
+    return card("AI summary", el("p", { class: "muted", style: "margin:0", text: "Writing a summary…" }));
+  }
+  if (ai.status !== "ok") {
+    return card("AI summary",
+      el("p", { class: "muted", style: "margin:0 0 8px", text: AI_STATUS[ai.status] ?? ai.error ?? "The AI summary failed." }),
+      aiToggle(true));
+  }
+  const d = ai.data;
+  return card("AI summary",
+    d.injectionSuspected
+      ? el("p", { style: "margin:0 0 8px" }, el("span", { class: "chip fail", text: "manipulation attempt" }), " ",
+          el("span", { class: "muted", text: "The email contains text that tries to instruct the AI. That alone is a strong sign of a malicious email." }))
+      : null,
+    el("p", { style: "margin:0 0 8px", text: d.summary }),
+    d.whatItWants ? el("p", { style: "margin:0 0 8px" }, el("strong", { text: "What it wants: " }), d.whatItWants) : null,
+    d.keyPoints.length ? el("ul", { class: "ai-points" }, d.keyPoints.map((p) => el("li", { text: p }))) : null,
+    d.advice ? el("p", { style: "margin:8px 0 0" }, el("strong", { text: "Advice: " }), d.advice) : null,
+    d.aiAssessment === "more_concerning"
+      ? el("p", { style: "margin:8px 0 0" }, el("span", { class: "chip warn", text: "AI: more concerning than the score" }), " ", el("span", { class: "muted", text: d.aiConcern }))
+      : null,
+    el("p", { class: "muted", style: "margin:10px 0 0" },
+      `Written by ${d.model}. AI can be wrong; the score above comes from fixed rules and is not affected.`,
+      ai.forScore != null && ai.forScore !== assessment.score ? ` (Written when the score was ${ai.forScore}; press Re-analyse to update.)` : "",
+      " ", aiToggle(true))
+  );
 }
 
 // ---------- lookups ----------
@@ -341,7 +391,9 @@ function renderReport(r, state) {
     )
   );
 
-  app.append(renderAssessment(assessReport(r), r.enrichment));
+  const assessment = assessReport(r);
+  app.append(renderAssessment(assessment, r.enrichment));
+  app.append(renderAiSummary(r.aiSummary, assessment));
 
   app.append(renderLookups(r.enrichment));
 
@@ -446,6 +498,11 @@ function renderReport(r, state) {
 
 // ---------- wiring ----------
 async function load() {
+  try {
+    aiOn = (await chrome.storage.local.get("aiSummary")).aiSummary === true;
+  } catch {
+    aiOn = false;
+  }
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   tabId = tab?.id ?? null;
   if (tabId == null) return renderState(null);
@@ -454,6 +511,13 @@ async function load() {
   renderState(state);
   if (!state) send("panel:rescan"); // panel opened before the content script reported
 }
+
+chrome.storage.local.onChanged.addListener((changes) => {
+  if (changes.aiSummary) {
+    aiOn = changes.aiSummary.newValue === true;
+    renderState(currentState);
+  }
+});
 
 chrome.storage.session.onChanged.addListener((changes) => {
   const change = changes[`tab:${tabId}`];
