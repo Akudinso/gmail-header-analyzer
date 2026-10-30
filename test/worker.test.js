@@ -83,7 +83,7 @@ test("health reports which keys are configured, without revealing them", async (
   const res = await worker.fetch(new Request("http://w/health", { headers: { origin } }), { ...baseEnv, ABUSEIPDB_API_KEY: "" });
   assert.equal(res.status, 200);
   const body = await res.json();
-  assert.deepEqual(body.configured, { workerKey: true, virustotal: true, abuseipdb: false, ai: false, sharedCache: false });
+  assert.deepEqual(body.configured, { workerKey: true, virustotal: true, abuseipdb: false, gemini: false, sharedCache: false });
   assert.ok(!JSON.stringify(body).includes(KEY));
   assert.equal(res.headers.get("access-control-allow-origin"), origin);
 });

@@ -1,9 +1,10 @@
 // Cloudflare Worker backend. It holds the API keys (VirusTotal, AbuseIPDB,
-// and later the AI provider) so they never ship inside the extension.
+// Gemini) so they never ship inside the extension.
 //
 // Endpoints:
 //   GET  /health      -> which keys are configured (booleans only)
 //   POST /v1/enrich   -> reputation, ownership and age for an email's indicators
+//   POST /v1/summarise -> AI explanation of the (fixed) risk assessment, via Gemini
 //
 // Access control (both required):
 //   1. Origin must be in ALLOWED_ORIGINS (your extension: chrome-extension://<id>)
@@ -13,6 +14,7 @@
 // the caller is you, not to read your mail.
 
 import { createCache } from "./cache.js";
+import { summarise, validateSummaryRequest } from "./summary.js";
 import { abuseipdb, domainDns, rdapDomain, rdapIp, reverseDns, virustotal } from "./lookups.js";
 import { isIPv4, isIPv6, isNonPublicIp } from "../../extension/lib/netutil.js";
 
@@ -188,7 +190,7 @@ export default {
             workerKey: Boolean(env.WORKER_KEY),
             virustotal: Boolean(env.VT_API_KEY),
             abuseipdb: Boolean(env.ABUSEIPDB_API_KEY),
-            ai: Boolean(env.AI_API_KEY),
+            gemini: Boolean(env.GEMINI_API_KEY),
             sharedCache: Boolean(env.LOOKUP_CACHE),
           },
         },
@@ -198,7 +200,12 @@ export default {
       );
     }
 
-    if (url.pathname === "/v1/enrich" && request.method === "POST") {
+    const routes = {
+      "/v1/enrich": { validate: validateRequest, run: enrich },
+      "/v1/summarise": { validate: validateSummaryRequest, run: summarise },
+    };
+    const route = request.method === "POST" ? routes[url.pathname] : null;
+    if (route) {
       if (!env.WORKER_KEY) return json({ error: "WORKER_KEY is not set on the Worker" }, 503, request, env);
       const auth = request.headers.get("authorization") ?? "";
       const given = auth.startsWith("Bearer ") ? auth.slice(7) : "";
@@ -212,9 +219,9 @@ export default {
       } catch {
         return json({ error: "invalid JSON" }, 400, request, env);
       }
-      const req = validateRequest(body);
+      const req = route.validate(body);
       if (!req) return json({ error: "invalid request" }, 400, request, env);
-      return json(await enrich(req, env), 200, request, env);
+      return json(await route.run(req, env), 200, request, env);
     }
 
     return json({ error: "not found" }, 404, request, env);

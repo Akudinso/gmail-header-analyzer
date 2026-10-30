@@ -7,5 +7,5 @@ WORKER_KEY=
 VT_API_KEY=
 ABUSEIPDB_API_KEY=
 
-# AI provider key for the email summary (roadmap step 5).
-AI_API_KEY=
+# Google Gemini key for the AI summary: https://aistudio.google.com/apikey
+GEMINI_API_KEY=

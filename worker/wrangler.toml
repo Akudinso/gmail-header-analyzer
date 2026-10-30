@@ -6,11 +6,15 @@ compatibility_date = "2026-10-01"
 # everyone who clones the repo:
 #   Local:      worker/.dev.vars (written by `npm run setup`; add your API keys there)
 #   Deployed:   npx wrangler secret put <NAME> --config worker/wrangler.toml
-# Names: WORKER_KEY, ALLOWED_ORIGINS, VT_API_KEY, ABUSEIPDB_API_KEY
+# Names: WORKER_KEY, ALLOWED_ORIGINS, VT_API_KEY, ABUSEIPDB_API_KEY, GEMINI_API_KEY
 
 [vars]
 # How many VirusTotal lookups one email may use. The free tier allows 4/minute.
 VT_MAX_LOOKUPS = "4"
+
+# Gemini model for the AI summary. Change it if Google retires this one or
+# your key can't use it (the panel will say so).
+GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 # Optional shared cache across Cloudflare locations. Create one with
 #   npx wrangler kv namespace create LOOKUP_CACHE --config worker/wrangler.toml
