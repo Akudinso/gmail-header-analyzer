@@ -39,6 +39,7 @@ export const LEVELS = [
 ];
 
 const NEW_DOMAIN_DAYS = 30;
+const YOUNG_DOMAIN_DAYS = 90;
 export const DECISIVE_FLOOR = 60;
 const ok = (res) => (res?.status === "ok" && res.data ? res.data : null);
 const vtBad = (res) => {
@@ -87,10 +88,15 @@ export function buildFindings(r) {
     const age = ok(d.rdap)?.ageDays;
     if (age != null && age < NEW_DOMAIN_DAYS) {
       add(`new_domain:${d.domain}`, "identity", isSenderSide ? 25 : 10, `${d.domain} (${roles}) was registered only ${plural(age, "day", "days")} ago.`);
+    } else if (age != null && age < YOUNG_DOMAIN_DAYS && !d.roles.every((role) => role === "link")) {
+      // 30-90 days: still young enough to be a campaign domain, but legitimate
+      // new businesses land here too, so it counts for less.
+      add(`young_domain:${d.domain}`, "identity", 10, `${d.domain} (${roles}) was registered ${age} days ago, under 3 months.`);
     }
   }
   if (r.checks.replyToDiffers) add("reply_to_differs", "identity", 15, `Replies go to ${s.replyTo.domain}, not ${s.from.domain}.`);
   if (r.checks.displayNameHasEmail) add("display_name_email", "identity", 15, "The display name contains a different email address.");
+  if (r.checks.senderDiffers) add("sender_differs", "identity", 5, `The Sender header says ${s.sender.domain} sent this on behalf of ${s.from.domain}. (Normal for mailing lists and booking services, so it counts for little on its own.)`);
   if (r.checks.returnPathDiffers) add("return_path_differs", "identity", 5, `Bounces go to ${s.returnPath.domain}, not ${s.from.domain}. (Common for newsletter services, so it counts for little on its own.)`);
 
   // ---- Sending infrastructure ----

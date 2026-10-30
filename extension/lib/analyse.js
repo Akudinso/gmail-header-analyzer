@@ -243,6 +243,7 @@ export async function analyseRawMessage(bytes, meta = {}) {
   const checks = {
     replyToDiffers: Boolean(replyTo?.domain && from?.domain && !sameOrg(replyTo.domain, from.domain)),
     returnPathDiffers: Boolean(returnPath?.domain && from?.domain && !sameOrg(returnPath.domain, from.domain)),
+    senderDiffers: Boolean(sender?.domain && from?.domain && !sameOrg(sender.domain, from.domain)),
     dkimNotAligned: Boolean(auth.dkim?.domain && from?.domain && !sameOrg(auth.dkim.domain, from.domain)),
     displayNameHasEmail: Boolean(from?.name && /@/.test(from.name) && !from.name.toLowerCase().includes(from.email?.toLowerCase())),
     linkTextMismatches: urls.filter((u) => u.textMismatch).length,

@@ -43,6 +43,25 @@ test("Kay's real phishing email scores High risk, with every point traceable", a
   const infra = a.groups.find((g) => g.id === "infrastructure");
   assert.equal(infra.points, 40);
   assert.equal(a.findings.find((f) => f.id === "ptr_unconfirmed").awarded, 0);
+  // The 61-day-old bounce/DKIM domain now counts as young (identity group is already capped).
+  assert.ok(ids(a).includes("young_domain"));
+});
+
+test("young domains: 30-90 days scores less than under 30, and links alone don't count", () => {
+  const base = { auth: { trustedSource: "mx.google.com", dkim: { result: "pass" }, dmarc: { result: "pass" } }, checks: {}, summary: {}, senderIp: {}, attachments: [] };
+  const withDomain = (ageDays, roles) => ({ ...base, enrichment: { status: "ok", results: { domains: [{ domain: "x.com", roles, rdap: ok({ ageDays }) }] } } });
+  const pts = (r) => buildFindings(r).map((f) => `${f.id.split(":")[0]}=${f.points}`);
+  assert.deepEqual(pts(withDomain(10, ["from"])), ["new_domain=25"]);
+  assert.deepEqual(pts(withDomain(61, ["from"])), ["young_domain=10"]);
+  assert.deepEqual(pts(withDomain(61, ["link"])), []);
+  assert.deepEqual(pts(withDomain(400, ["from"])), []);
+});
+
+test("Sender header on another domain adds a few points", async () => {
+  const raw = readFileSync(new URL("./fixtures/legit.eml", import.meta.url), "utf8").replace("\nTo: kay@gmail.com", "\nSender: bulk@lists.example.net\nTo: kay@gmail.com");
+  const a = assessReport(await analyseRawMessage(new TextEncoder().encode(raw)));
+  assert.deepEqual(ids(a), ["sender_differs"]);
+  assert.equal(a.level, "low");
 });
 
 test("even without lookups, the same email is already High risk from headers alone", async () => {

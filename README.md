@@ -35,7 +35,9 @@ Every point traces back to a finding you can read, and the same email always get
    | Domain registered under 30 days ago (From/Reply-To) | 25 | Phishing domains are usually brand new |
    | Server's own name doesn't match Google's lookup | 20 | Impersonation, e.g. "docs.google.com" from a rented server |
    | Reply-To on another domain | 15 | Replies are diverted |
+   | Domain registered 30–90 days ago (From/Reply-To/bounce/DKIM) | 10 | Still young, but legitimate new businesses land here too |
    | Bounce address on another domain | 5 | Normal for every newsletter service, so it counts for little |
+   | Sender header on another domain | 5 | Normal for mailing lists and booking services |
 
 2. **Related findings share a cap.** Findings fall into five groups (authentication, sender identity, sending infrastructure, links, attachments), each with a maximum. A DMARC failure usually brings SPF and DKIM problems with it; the cap stops one root cause being counted three times. A finding over the cap shows "+10 of 20".
 3. **Passes never lower the score.** SPF, DKIM and DMARC passing proves a domain sent the email, not that the domain is honest. Attackers pass all three on domains they registered last week.
